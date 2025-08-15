@@ -22,8 +22,8 @@ app.use(helmet({
             frameAncestors: ["'self'"],
             imgSrc: ["'self'", "data:", "blob:"], // 允許 blob: URLs
             objectSrc: ["'none'"],
-            scriptSrc: ["'self'"],
-            scriptSrcAttr: ["'none'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrcAttr: ["'unsafe-inline'"],
             styleSrc: ["'self'", "https:", "'unsafe-inline'"],
             upgradeInsecureRequests: [],
         },
