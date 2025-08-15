@@ -58,13 +58,13 @@ GOOGLE_SPREADSHEET_ID=待填入
 GOOGLE_DRIVE_FOLDER_ID=待填入
 ```
 
-#### SMTP 設定（先留空，稍後填入）：
+#### SMTP 設定（企業郵件伺服器）：
 ```
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=ex2016.jih-sun.com.tw
 SMTP_PORT=587
-SMTP_USER=待填入
-SMTP_PASS=待填入
-SMTP_FROM=待填入
+SMTP_USER=Jameschen@inftfinance.com.tw
+SMTP_PASS=企業郵件密碼
+SMTP_FROM=Jameschen@inftfinance.com.tw
 ```
 
 ### 步驟 5：部署應用程式
@@ -182,11 +182,11 @@ GOOGLE_DRIVE_FOLDER_ID=您的Drive資料夾ID
 
 ### 更新 SMTP 設定：
 ```
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=ex2016.jih-sun.com.tw
 SMTP_PORT=587
-SMTP_USER=您的Gmail帳號
-SMTP_PASS=Gmail應用程式密碼
-SMTP_FROM=您的Gmail帳號
+SMTP_USER=Jameschen@inftfinance.com.tw
+SMTP_PASS=企業郵件密碼
+SMTP_FROM=Jameschen@inftfinance.com.tw
 ```
 
 ### 重新部署

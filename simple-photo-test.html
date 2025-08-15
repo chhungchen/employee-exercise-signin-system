@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>照片載入測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .photo-test { margin: 10px 0; }
+        img { max-width: 200px; border: 1px solid #ddd; margin: 10px; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>簡易照片載入測試</h1>
+    
+    <div class="test-section">
+        <h2>測試 1: 直接 Google Drive URL</h2>
+        <button onclick="testDirectUrls()">測試直接 URL</button>
+        <div id="direct-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>測試 2: 代理 API</h2>
+        <button onclick="testProxyApi()">測試代理 API</button>
+        <div id="proxy-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>測試 3: 認證狀態</h2>
+        <button onclick="checkAuth()">檢查認證</button>
+        <div id="auth-results"></div>
+    </div>
+
+    <script>
+        const testFileIds = [
+            '1hFgg9pu3kZZnC13BT_Mtu6b_wqD4LvI-',
+            '1GTovrfyXI_DETu4owLgjTlWg8kxKHSRD',
+            '1viEyASC2WfNTbeUKVWYRTWbNC14SFNIp'
+        ];
+
+        function testDirectUrls() {
+            const resultsDiv = document.getElementById('direct-results');
+            resultsDiv.innerHTML = '<p>正在測試直接 URL...</p>';
+            
+            let html = '';
+            testFileIds.forEach((fileId, index) => {
+                const directUrl = \`https://drive.google.com/uc?export=view&id=\${fileId}\`;
+                html += \`
+                    <div class="photo-test">
+                        <h4>照片 \${index + 1} (File ID: \${fileId})</h4>
+                        <p>URL: \${directUrl}</p>
+                        <img src="\${directUrl}" 
+                             onload="console.log('✅ 直接載入成功: \${fileId}')" 
+                             onerror="console.log('❌ 直接載入失敗: \${fileId}'); this.style.border='2px solid red';"
+                             alt="測試照片 \${index + 1}">
+                    </div>
+                \`;
+            });
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        async function testProxyApi() {
+            const resultsDiv = document.getElementById('proxy-results');
+            resultsDiv.innerHTML = '<p>正在測試代理 API...</p>';
+            
+            const authToken = localStorage.getItem('authToken');
+            if (!authToken) {
+                resultsDiv.innerHTML = '<p class="error">❌ 沒有認證 Token，請先登入管理員後台</p>';
+                return;
+            }
+            
+            let html = '<p class="success">✅ 找到認證 Token</p>';
+            
+            for (let i = 0; i < testFileIds.length; i++) {
+                const fileId = testFileIds[i];
+                const proxyUrl = \`/api/admin/photo/\${fileId}\`;
+                
+                try {
+                    console.log(\`🔄 測試代理 API: \${fileId}\`);
+                    
+                    const response = await fetch(proxyUrl, {
+                        headers: {
+                            'Authorization': \`Bearer \${authToken}\`
+                        }
+                    });
+                    
+                    html += \`<div class="photo-test">
+                        <h4>照片 \${i + 1} (代理)</h4>
+                        <p>狀態: \${response.status} \${response.statusText}</p>
+                    \`;
+                    
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        html += \`
+                            <p class="success">✅ 代理載入成功</p>
+                            <p>Blob URL: \${blobUrl}</p>
+                            <img src="\${blobUrl}" alt="代理照片 \${i + 1}" style="max-width: 150px;">
+                        \`;
+                        console.log(\`✅ 代理載入成功: \${fileId}, Blob URL: \${blobUrl}\`);
+                    } else {
+                        html += \`<p class="error">❌ 代理載入失敗: \${response.status}</p>\`;
+                        console.log(\`❌ 代理載入失敗: \${fileId}, 狀態: \${response.status}\`);
+                    }
+                    
+                    html += '</div>';
+                } catch (error) {
+                    html += \`<div class="photo-test">
+                        <h4>照片 \${i + 1} (代理)</h4>
+                        <p class="error">❌ 請求失敗: \${error.message}</p>
+                    </div>\`;
+                    console.error(\`❌ 代理請求失敗: \${fileId}\`, error);
+                }
+            }
+            
+            resultsDiv.innerHTML = html;
+        }
+
+        function checkAuth() {
+            const resultsDiv = document.getElementById('auth-results');
+            const authToken = localStorage.getItem('authToken');
+            
+            let html = \`
+                <h4>認證狀態檢查</h4>
+                <p><strong>Token 存在:</strong> \${authToken ? '是' : '否'}</p>
+            \`;
+            
+            if (authToken) {
+                html += \`
+                    <p><strong>Token 前20字符:</strong> \${authToken.substring(0, 20)}...</p>
+                    <p><strong>Token 長度:</strong> \${authToken.length}</p>
+                \`;
+            } else {
+                html += '<p class="error">請先前往 <a href="/admin" target="_blank">/admin</a> 登入</p>';
+            }
+            
+            resultsDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

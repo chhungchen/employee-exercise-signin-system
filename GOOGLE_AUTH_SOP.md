@@ -86,12 +86,12 @@ GOOGLE_REDIRECT_URI=https://your-app.onrender.com/auth/google/callback
 GOOGLE_SPREADSHEET_ID=從步驟3複製
 GOOGLE_DRIVE_FOLDER_ID=從步驟3複製
 
-# Gmail SMTP
-SMTP_HOST=smtp.gmail.com
+# SMTP 郵件設定 (企業郵件伺服器)
+SMTP_HOST=ex2016.jih-sun.com.tw
 SMTP_PORT=587
-SMTP_USER=您的Gmail帳號
-SMTP_PASS=從步驟4複製的應用程式密碼
-SMTP_FROM=您的Gmail帳號
+SMTP_USER=Jameschen@inftfinance.com.tw
+SMTP_PASS=您的企業郵件密碼
+SMTP_FROM=Jameschen@inftfinance.com.tw
 ```
 
 ## ✅ 授權流程

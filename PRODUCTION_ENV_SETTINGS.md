@@ -22,13 +22,13 @@ GOOGLE_SPREADSHEET_ID=請設定測試用的 Google Sheets ID
 GOOGLE_DRIVE_FOLDER_ID=請設定測試用的 Google Drive 資料夾 ID
 ```
 
-### SMTP 郵件服務配置（測試用）
+### SMTP 郵件服務配置（企業郵件伺服器）
 ```
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=ex2016.jih-sun.com.tw
 SMTP_PORT=587
-SMTP_USER=請設定測試用的 Gmail 帳號
-SMTP_PASS=請設定 Gmail 應用程式密碼
-SMTP_FROM=請設定寄件者信箱
+SMTP_USER=Jameschen@inftfinance.com.tw
+SMTP_PASS=請設定企業郵件密碼
+SMTP_FROM=Jameschen@inftfinance.com.tw
 ```
 
 ## 安全說明
