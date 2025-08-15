@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理員帳號初始化</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .step {
+            background: #e8f4fd;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 20px auto;
+            min-width: 200px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .login-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .login-link a {
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+        }
+        .login-link a:hover {
+            background: #218838;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 管理員帳號初始化</h1>
+        
+        <div class="step">
+            <strong>步驟說明：</strong><br>
+            1. 確認 Google 授權已完成<br>
+            2. 點擊下方按鈕初始化管理員帳號<br>
+            3. 初始化成功後即可登入管理員後台
+        </div>
+
+        <button id="initButton" class="button" onclick="initializeAdmin()">
+            初始化管理員帳號
+        </button>
+
+        <div id="result"></div>
+
+        <div id="loginSection" class="login-link" style="display: none;">
+            <p><strong>✅ 初始化完成！現在可以登入管理員後台：</strong></p>
+            <a href="/admin" target="_blank">前往管理員後台</a>
+            <p>
+                <strong>登入帳號：</strong> admin<br>
+                <strong>登入密碼：</strong> SportSys2025@Secure
+            </p>
+        </div>
+    </div>
+
+    <script>
+        async function initializeAdmin() {
+            const button = document.getElementById('initButton');
+            const resultDiv = document.getElementById('result');
+            const loginSection = document.getElementById('loginSection');
+            
+            // 顯示載入狀態
+            button.disabled = true;
+            button.textContent = '正在初始化...';
+            resultDiv.className = 'result loading';
+            resultDiv.textContent = '正在連接伺服器並初始化管理員帳號，請稍候...';
+            loginSection.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/admin/init-admin', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 成功
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ ${data.message}
+
+管理員帳號資訊：
+- 使用者名稱: admin
+- 密碼: SportSys2025@Secure
+
+您現在可以使用以上帳號密碼登入管理員後台。`;
+                    
+                    button.textContent = '初始化完成 ✅';
+                    loginSection.style.display = 'block';
+                } else {
+                    // 失敗
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 初始化失敗：${data.error || '未知錯誤'}
+
+請檢查：
+1. Google 授權是否已完成
+2. 伺服器是否正常運行
+3. 環境變數是否正確設定`;
+                    
+                    button.disabled = false;
+                    button.textContent = '重新嘗試初始化';
+                }
+                
+            } catch (error) {
+                // 網路錯誤
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 連接失敗：${error.message}
+
+可能的原因：
+1. 網路連線問題
+2. 伺服器尚未完成部署
+3. Google 授權尚未完成
+
+請稍後再試，或檢查伺服器狀態。`;
+                
+                button.disabled = false;
+                button.textContent = '重新嘗試初始化';
+            }
+        }
+    </script>
+</body>
+</html>
