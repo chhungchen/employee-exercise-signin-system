@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: employee-exercise-signin
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_PERSONAL_GOOGLE
+        value: true
+      - key: USE_GOOGLE_SERVICES
+        value: true
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DEFAULT_ADMIN_PASSWORD
+        value: SportSys2025@Secure
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
