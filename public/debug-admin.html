@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理員帳號除錯工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; text-align: center; }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 8px 5px;
+        }
+        button:hover { background: #0056b3; }
+        .danger-btn { background: #dc3545; }
+        .danger-btn:hover { background: #c82333; }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐛 管理員帳號除錯工具</h1>
+        
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="debugDatabase()">🔍 檢查資料庫內容</button>
+            <button onclick="createTestAdmin()">👤 建立測試管理員</button>
+            <button class="danger-btn" onclick="resetAllAdmins()">🗑️ 重置所有管理員</button>
+        </div>
+
+        <div class="form-group">
+            <h3>手動建立管理員帳號</h3>
+            <label for="newUsername">新使用者名稱：</label>
+            <input type="text" id="newUsername" value="admin" />
+            
+            <label for="newPassword">新密碼：</label>
+            <input type="password" id="newPassword" value="SportSys2025@Secure" />
+            
+            <button onclick="createCustomAdmin()">建立自訂管理員</button>
+        </div>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function debugDatabase() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="result info">正在檢查資料庫內容...</div>';
+            
+            // 建立一個臨時的偵錯路由
+            try {
+                const response = await fetch('/api/admin/debug-admins', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.status === 404) {
+                    // 如果路由不存在，顯示替代資訊
+                    resultDiv.innerHTML = `
+                        <div class="result warning">
+                            <strong>⚠️ 偵錯路由不存在</strong>
+                            
+                            偵錯路由尚未建立。讓我們嘗試其他方式檢查系統狀態。
+                        </div>
+                    `;
+                    
+                    // 嘗試其他檢查
+                    await checkSystemStatus();
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="result ${response.ok ? 'success' : 'error'}">
+                        <strong>📊 資料庫偵錯結果</strong>
+                        
+                        狀態: ${response.status}
+                        
+                        ${JSON.stringify(data, null, 2)}
+                    </div>
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        偵錯請求失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function checkSystemStatus() {
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                // 檢查初始化狀態
+                const initResponse = await fetch('/api/admin/init-admin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const initData = await initResponse.json();
+                
+                // 嘗試多個密碼進行登入測試
+                const passwords = ['SportSys2025@Secure', 'admin123', 'admin', ''];
+                let loginResults = [];
+                
+                for (const password of passwords) {
+                    try {
+                        const loginResponse = await fetch('/api/admin/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: 'admin', password: password })
+                        });
+                        
+                        const loginData = await loginResponse.json();
+                        loginResults.push({
+                            password: password || '(空密碼)',
+                            status: loginResponse.status,
+                            success: loginResponse.ok,
+                            message: loginData.message || loginData.error
+                        });
+                        
+                        if (loginResponse.ok) break; // 找到正確密碼就停止
+                    } catch (e) {
+                        loginResults.push({
+                            password: password,
+                            status: 'ERROR',
+                            success: false,
+                            message: e.message
+                        });
+                    }
+                }
+                
+                let html = `
+                    <div class="result info">
+                        <strong>🧪 系統狀態檢查</strong>
+                        
+                        初始化結果:
+                        狀態: ${initResponse.status}
+                        成功: ${initData.success}
+                        訊息: ${initData.message}
+                        
+                        登入測試結果:
+                `;
+                
+                loginResults.forEach((result, index) => {
+                    html += `
+                        ${index + 1}. admin / ${result.password}
+                           狀態: ${result.status}
+                           成功: ${result.success ? '✅' : '❌'}
+                           訊息: ${result.message}
+                    `;
+                });
+                
+                html += `</div>`;
+                resultDiv.innerHTML += html;
+                
+            } catch (error) {
+                resultDiv.innerHTML += `
+                    <div class="result error">
+                        系統狀態檢查失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function createTestAdmin() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="result info">正在建立測試管理員...</div>';
+            
+            try {
+                // 多次嘗試建立管理員
+                const attempts = [
+                    { username: 'admin', password: 'SportSys2025@Secure' },
+                    { username: 'testadmin', password: 'test123' },
+                    { username: 'administrator', password: 'admin' }
+                ];
+                
+                let results = [];
+                
+                for (const cred of attempts) {
+                    try {
+                        const response = await fetch('/api/admin/create-test-admin', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(cred)
+                        });
+                        
+                        const data = await response.json();
+                        results.push({
+                            credentials: cred,
+                            status: response.status,
+                            success: response.ok,
+                            data: data
+                        });
+                    } catch (e) {
+                        results.push({
+                            credentials: cred,
+                            status: 'ERROR',
+                            success: false,
+                            data: { error: e.message }
+                        });
+                    }
+                }
+                
+                let html = '<div class="result info"><strong>測試管理員建立結果:</strong>\n\n';
+                results.forEach((result, index) => {
+                    html += `${index + 1}. ${result.credentials.username} / ${result.credentials.password}
+   狀態: ${result.status}
+   成功: ${result.success ? '✅' : '❌'}
+   結果: ${JSON.stringify(result.data, null, 2)}
+   
+`;
+                });
+                html += '</div>';
+                
+                resultDiv.innerHTML = html;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        建立測試管理員失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function createCustomAdmin() {
+            const username = document.getElementById('newUsername').value;
+            const password = document.getElementById('newPassword').value;
+            const resultDiv = document.getElementById('result');
+            
+            if (!username || !password) {
+                resultDiv.innerHTML = '<div class="result error">請輸入使用者名稱和密碼</div>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="result info">正在建立自訂管理員...</div>';
+            
+            try {
+                const response = await fetch('/api/admin/create-custom-admin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="result ${response.ok ? 'success' : 'error'}">
+                        <strong>${response.ok ? '✅ 成功' : '❌ 失敗'}</strong>
+                        
+                        使用者名稱: ${username}
+                        密碼: ${password}
+                        狀態: ${response.status}
+                        
+                        回應: ${JSON.stringify(data, null, 2)}
+                        
+                        ${response.ok ? '現在可以嘗試用這組帳號密碼登入管理員後台。' : ''}
+                    </div>
+                `;
+                
+                if (response.ok) {
+                    // 自動測試登入
+                    setTimeout(async () => {
+                        try {
+                            const loginResponse = await fetch('/api/admin/login', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ username, password })
+                            });
+                            
+                            const loginData = await loginResponse.json();
+                            
+                            resultDiv.innerHTML += `
+                                <div class="result ${loginResponse.ok ? 'success' : 'warning'}">
+                                    <strong>自動登入測試:</strong>
+                                    
+                                    狀態: ${loginResponse.status}
+                                    成功: ${loginResponse.ok ? '✅' : '❌'}
+                                    回應: ${JSON.stringify(loginData, null, 2)}
+                                </div>
+                            `;
+                        } catch (e) {
+                            resultDiv.innerHTML += `
+                                <div class="result error">
+                                    自動登入測試失敗: ${e.message}
+                                </div>
+                            `;
+                        }
+                    }, 2000);
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        建立自訂管理員失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function resetAllAdmins() {
+            if (!confirm('⚠️ 這將會刪除所有現有的管理員帳號並重新建立預設管理員。確定要繼續嗎？')) {
+                return;
+            }
+            
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<div class="result warning">正在重置所有管理員帳號...</div>';
+            
+            try {
+                const response = await fetch('/api/admin/reset-admins', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="result ${response.ok ? 'success' : 'error'}">
+                        <strong>重置結果:</strong>
+                        
+                        狀態: ${response.status}
+                        ${JSON.stringify(data, null, 2)}
+                    </div>
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        重置管理員失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // 頁面載入時自動執行檢查
+        window.addEventListener('load', () => {
+            checkSystemStatus();
+        });
+    </script>
+</body>
+</html>

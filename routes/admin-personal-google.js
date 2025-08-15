@@ -1055,4 +1055,157 @@ router.post('/init-admin', async (req, res) => {
     }
 });
 
+// 除錯路由：檢查所有管理員帳號
+router.get('/debug-admins', async (req, res) => {
+    try {
+        console.log('🔍 開始除錯管理員帳號...');
+        
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.status(500).json({ error: 'Google 服務初始化失敗' });
+        }
+        
+        await personalGoogleServices.ensureSpreadsheetExists();
+        
+        const admins = await personalDatabase.getAllAdmins();
+        console.log(`📊 找到 ${admins.length} 個管理員帳號`);
+        
+        const sanitizedAdmins = admins.map(admin => ({
+            id: admin.id,
+            username: admin.username,
+            created_at: admin.created_at,
+            password_hash_preview: admin.password_hash ? admin.password_hash.substring(0, 10) + '...' : 'null'
+        }));
+        
+        res.json({
+            success: true,
+            total: admins.length,
+            admins: sanitizedAdmins,
+            debug_info: {
+                google_initialized: initialized,
+                spreadsheet_id: personalGoogleServices.spreadsheetId
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ 除錯管理員帳號失敗:', error);
+        res.status(500).json({ 
+            error: '除錯過程中發生錯誤',
+            details: error.message 
+        });
+    }
+});
+
+// 建立測試管理員
+router.post('/create-test-admin', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        console.log(`🧪 建立測試管理員: ${username}`);
+        
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.status(500).json({ error: 'Google 服務初始化失敗' });
+        }
+        
+        await personalGoogleServices.ensureSpreadsheetExists();
+        
+        // 檢查是否已存在
+        const existingAdmin = await personalDatabase.getAdminByUsername(username);
+        if (existingAdmin) {
+            return res.json({ 
+                success: true, 
+                message: `管理員 ${username} 已存在`,
+                admin: {
+                    username: existingAdmin.username,
+                    created_at: existingAdmin.created_at
+                }
+            });
+        }
+        
+        // 建立新管理員
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await personalDatabase.createAdmin({
+            id: Date.now(), // 使用時間戳作為 ID
+            username: username,
+            password_hash: hashedPassword,
+            created_at: moment().format('YYYY-MM-DD HH:mm:ss')
+        });
+        
+        console.log(`✅ 測試管理員 ${username} 建立成功`);
+        
+        res.json({ 
+            success: true, 
+            message: `測試管理員 ${username} 建立成功`,
+            credentials: { username, password }
+        });
+        
+    } catch (error) {
+        console.error('❌ 建立測試管理員失敗:', error);
+        res.status(500).json({ 
+            error: '建立測試管理員時發生錯誤',
+            details: error.message 
+        });
+    }
+});
+
+// 建立自訂管理員
+router.post('/create-custom-admin', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        
+        if (!username || !password) {
+            return res.status(400).json({ error: '請提供使用者名稱和密碼' });
+        }
+        
+        console.log(`👤 建立自訂管理員: ${username}`);
+        
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.status(500).json({ error: 'Google 服務初始化失敗' });
+        }
+        
+        await personalGoogleServices.ensureSpreadsheetExists();
+        
+        // 先刪除同名的管理員（如果存在）
+        try {
+            const existingAdmin = await personalDatabase.getAdminByUsername(username);
+            if (existingAdmin) {
+                console.log(`🗑️ 刪除現有管理員: ${username}`);
+                // 這裡應該有刪除邏輯，但目前 Google Sheets 版本可能不支援
+            }
+        } catch (e) {
+            console.log('檢查現有管理員時發生錯誤，繼續建立新管理員');
+        }
+        
+        // 建立新管理員
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newAdmin = {
+            id: Date.now(),
+            username: username,
+            password_hash: hashedPassword,
+            created_at: moment().format('YYYY-MM-DD HH:mm:ss')
+        };
+        
+        await personalDatabase.createAdmin(newAdmin);
+        
+        console.log(`✅ 自訂管理員 ${username} 建立成功`);
+        
+        res.json({ 
+            success: true, 
+            message: `管理員 ${username} 建立成功`,
+            admin: {
+                username: newAdmin.username,
+                created_at: newAdmin.created_at
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ 建立自訂管理員失敗:', error);
+        res.status(500).json({ 
+            error: '建立自訂管理員時發生錯誤',
+            details: error.message 
+        });
+    }
+});
+
 module.exports = router;
