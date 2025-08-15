@@ -262,7 +262,12 @@ class PersonalGoogleServices {
             return rows.slice(1).map(row => {
                 const obj = {};
                 headers.forEach((header, index) => {
-                    obj[header] = row[index] || '';
+                    let value = row[index] || '';
+                    // 特別處理密碼雜湊欄位，確保去除空白和隱藏字元
+                    if (header === 'password_hash' && value) {
+                        value = value.toString().trim();
+                    }
+                    obj[header] = value;
                 });
                 return obj;
             });
@@ -282,7 +287,15 @@ class PersonalGoogleServices {
             });
 
             const headers = headerResponse.data.values[0] || [];
-            const values = headers.map(header => data[header] || '');
+            const values = headers.map(header => {
+                let value = data[header] || '';
+                // 確保密碼雜湊的完整性
+                if (header === 'password_hash' && value) {
+                    value = value.toString().trim();
+                    console.log(`🔐 儲存密碼雜湊: ${value.substring(0, 10)}... (長度: ${value.length})`);
+                }
+                return value;
+            });
 
             await this.sheets.spreadsheets.values.append({
                 spreadsheetId: this.spreadsheetId,
@@ -311,7 +324,15 @@ class PersonalGoogleServices {
             });
 
             const headers = headerResponse.data.values[0] || [];
-            const values = headers.map(header => data[header] || '');
+            const values = headers.map(header => {
+                let value = data[header] || '';
+                // 確保密碼雜湊的完整性
+                if (header === 'password_hash' && value) {
+                    value = value.toString().trim();
+                    console.log(`🔐 更新密碼雜湊: ${value.substring(0, 10)}... (長度: ${value.length})`);
+                }
+                return value;
+            });
 
             await this.sheets.spreadsheets.values.update({
                 spreadsheetId: this.spreadsheetId,

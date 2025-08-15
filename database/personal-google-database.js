@@ -519,7 +519,23 @@ class PersonalGoogleDatabase {
 
     async getAdminByUsername(username) {
         const admins = await this.getAllAdmins();
-        return admins.find(admin => admin.username === username) || null;
+        const admin = admins.find(admin => admin.username === username) || null;
+        
+        if (admin) {
+            // 除錯記錄：檢查密碼雜湊格式
+            console.log(`🔍 getAdminByUsername - 找到管理員: ${admin.username}`);
+            console.log(`🔍 getAdminByUsername - password_hash 類型: ${typeof admin.password_hash}`);
+            console.log(`🔍 getAdminByUsername - password_hash 長度: ${admin.password_hash ? admin.password_hash.length : 'N/A'}`);
+            console.log(`🔍 getAdminByUsername - password_hash 前綴: ${admin.password_hash ? admin.password_hash.substring(0, 15) + '...' : 'N/A'}`);
+            console.log(`🔍 getAdminByUsername - bcrypt 格式檢查: ${admin.password_hash && admin.password_hash.startsWith('$2') ? '✅ 正確' : '❌ 錯誤'}`);
+            
+            // 確保密碼雜湊被正確處理
+            if (admin.password_hash) {
+                admin.password_hash = admin.password_hash.toString().trim();
+            }
+        }
+        
+        return admin;
     }
 
     async createAdmin(adminData) {
