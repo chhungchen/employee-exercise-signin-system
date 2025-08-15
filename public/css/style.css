@@ -1,0 +1,631 @@
+/* 重置和基礎樣式 */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 標題區域 */
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+    color: white;
+}
+
+.header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 10px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.header p {
+    font-size: 1.1rem;
+    opacity: 0.9;
+}
+
+/* 主要內容區域 */
+.main-content {
+    flex: 1;
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    overflow: hidden;
+}
+
+/* 表單樣式 */
+.signin-form {
+    padding: 30px;
+}
+
+.form-section {
+    margin-bottom: 30px;
+    padding: 25px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border-left: 4px solid #667eea;
+}
+
+.form-section h2 {
+    color: #667eea;
+    margin-bottom: 20px;
+    font-size: 1.3rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #555;
+}
+
+.required {
+    color: #e74c3c;
+}
+
+.optional {
+    color: #6c757d;
+    font-size: 0.9em;
+}
+
+input, select, textarea {
+    width: 100%;
+    padding: 12px 15px;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: all 0.3s ease;
+    background: white;
+}
+
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+input::placeholder {
+    color: #999;
+}
+
+textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+}
+
+/* 拍照功能樣式 */
+.photo-upload-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.photo-input {
+    display: none;
+}
+
+.photo-controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.photo-preview {
+    width: 100%;
+    height: 200px;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.photo-preview:hover {
+    border-color: #667eea;
+    background: #f0f2ff;
+}
+
+.photo-preview i {
+    font-size: 3rem;
+    color: #999;
+    margin-bottom: 10px;
+}
+
+.photo-preview p {
+    color: #666;
+    font-size: 14px;
+}
+
+.photo-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 6px;
+}
+
+.photo-preview.has-image {
+    border-style: solid;
+    border-color: #667eea;
+}
+
+.photo-preview.has-image i,
+.photo-preview.has-image p {
+    display: none;
+}
+
+/* 簽名功能樣式 */
+.signature-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    position: relative;
+}
+
+.signature-canvas {
+    width: 100%;
+    height: 200px;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    background: white;
+    cursor: crosshair;
+    touch-action: none;
+    position: relative;
+    z-index: 2;
+}
+
+.signature-canvas:hover {
+    border-color: #667eea;
+}
+
+.signature-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(248, 249, 250, 0.95);
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 3;
+    transition: opacity 0.3s ease;
+    opacity: 1;
+}
+
+.signature-placeholder.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.signature-placeholder i {
+    font-size: 2rem;
+    color: #999;
+    margin-bottom: 10px;
+}
+
+.signature-placeholder p {
+    color: #666;
+    font-size: 14px;
+}
+
+.signature-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.signature-help {
+    color: #666;
+    font-size: 0.85rem;
+    margin-bottom: 5px;
+    text-align: center;
+}
+
+/* 按鈕樣式 */
+.form-actions {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    margin-top: 30px;
+}
+
+.btn {
+    padding: 12px 30px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+    transform: translateY(-2px);
+}
+
+/* 成功訊息 */
+.success-message {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    cursor: pointer;
+}
+
+.success-content {
+    background: white;
+    padding: 40px;
+    border-radius: 15px;
+    text-align: center;
+    max-width: 500px;
+    margin: 20px;
+}
+
+.success-content i {
+    font-size: 4rem;
+    color: #27ae60;
+    margin-bottom: 20px;
+}
+
+.success-content h3 {
+    color: #27ae60;
+    margin-bottom: 20px;
+    font-size: 1.5rem;
+}
+
+#successDetails {
+    margin: 20px 0;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    text-align: left;
+}
+
+/* 載入提示 */
+.loading {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    color: white;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(255,255,255,0.3);
+    border-top: 4px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 頁腳 */
+.footer {
+    text-align: center;
+    margin-top: 30px;
+    color: white;
+    opacity: 0.8;
+}
+
+/* 響應式設計 - 平板 */
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .header h1 {
+        font-size: 2rem;
+    }
+    
+    .signin-form {
+        padding: 20px;
+    }
+    
+    .form-section {
+        padding: 20px;
+        margin-bottom: 15px;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .form-actions {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+        min-height: 44px; /* 符合iOS觸控標準 */
+    }
+    
+    .success-content {
+        margin: 10px;
+        padding: 30px 20px;
+    }
+    
+    .photo-preview {
+        height: 200px; /* 增加手機查看高度 */
+    }
+    
+    .signature-canvas {
+        height: 180px; /* 增加簽名區域高度 */
+    }
+    
+    .photo-controls {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    /* 改善表單元素觸控體驗 */
+    input, select, textarea {
+        min-height: 44px; /* iOS標準觸控大小 */
+        padding: 12px 15px;
+    }
+    
+    /* 改善按鈕觸控 */
+    .photo-controls .btn {
+        min-height: 44px;
+        padding: 12px 20px;
+    }
+}
+
+/* 手機端優化 */
+@media (max-width: 480px) {
+    .container {
+        padding: 5px;
+    }
+    
+    .header {
+        margin-bottom: 20px;
+    }
+    
+    .header h1 {
+        font-size: 1.8rem;
+    }
+    
+    .header p {
+        font-size: 1rem;
+    }
+    
+    .signin-form {
+        padding: 15px;
+        border-radius: 10px;
+    }
+    
+    .form-section {
+        padding: 15px;
+        margin-bottom: 10px;
+    }
+    
+    .form-section h3 {
+        font-size: 1.1rem;
+        margin-bottom: 15px;
+    }
+    
+    /* 表單元素優化 */
+    input, select, textarea {
+        padding: 14px 15px;
+        font-size: 16px; /* 防止iOS縮放 */
+        border-radius: 8px;
+        min-height: 48px; /* 增加觸控區域 */
+    }
+    
+    .form-group label {
+        font-size: 0.95rem;
+        margin-bottom: 8px;
+    }
+    
+    /* 照片區域 */
+    .photo-preview {
+        height: 160px;
+        border-radius: 8px;
+    }
+    
+    .photo-controls {
+        gap: 8px;
+    }
+    
+    .photo-controls .btn {
+        padding: 12px 16px;
+        font-size: 0.9rem;
+    }
+    
+    /* 簽名區域 */
+    .signature-canvas {
+        height: 180px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+    }
+    
+    .signature-controls {
+        margin-top: 20px;
+        padding: 15px 0;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .signature-controls .btn {
+        padding: 12px 24px;
+        font-size: 0.9rem;
+        min-height: 44px;
+        border-radius: 8px;
+    }
+    
+    /* 按鈕優化 */
+    .btn {
+        min-height: 48px;
+        padding: 14px 20px;
+        font-size: 1rem;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+    
+    .btn-primary {
+        font-size: 1.1rem;
+    }
+    
+    /* 成功訊息 */
+    .success-content {
+        margin: 5px;
+        padding: 25px 15px;
+        border-radius: 10px;
+    }
+    
+    .success-content h3 {
+        font-size: 1.3rem;
+    }
+    
+    /* 改善觸控體驗 */
+    .required {
+        font-size: 1rem; /* 增大必填星號 */
+    }
+    
+    /* 簽名提示文字 */
+    .signature-placeholder p {
+        font-size: 0.9rem;
+    }
+}
+
+/* 動畫效果 */
+.form-section {
+    animation: slideInUp 0.6s ease-out;
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 錯誤狀態 */
+.error {
+    border-color: #e74c3c !important;
+    box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.1) !important;
+}
+
+.error-message {
+    color: #e74c3c;
+    font-size: 14px;
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* 成功狀態 */
+.success {
+    border-color: #27ae60 !important;
+    box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.1) !important;
+}
+
+/* 行動裝置專用樣式 */
+.mobile-only {
+    display: none;
+}
+
+/* 在行動裝置上顯示拍照按鈕 */
+@media (max-width: 768px) {
+    .mobile-only {
+        display: inline-block;
+    }
+    
+    .photo-controls {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .photo-controls .btn {
+        width: 100%;
+        justify-content: center;
+    }
+} 
