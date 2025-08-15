@@ -479,16 +479,46 @@ router.post('/login', checkGoogleAuth, async (req, res) => {
         // 查詢管理員
         const admin = await personalDatabase.getAdminByUsername(username);
         
+        // 除錯資訊：記錄查詢結果
+        console.log('🔍 登入除錯 - 使用者名稱:', username);
+        console.log('🔍 登入除錯 - 找到管理員:', admin ? '是' : '否');
+        if (admin) {
+            console.log('🔍 登入除錯 - 管理員資料:');
+            console.log('   - ID:', admin.id);
+            console.log('   - Username:', admin.username);
+            console.log('   - Password Hash 長度:', admin.password_hash ? admin.password_hash.length : '未定義');
+            console.log('   - Password Hash 開頭:', admin.password_hash ? admin.password_hash.substring(0, 10) + '...' : '未定義');
+            console.log('   - Created At:', admin.created_at);
+        }
+        
         if (!admin) {
+            console.log('❌ 登入除錯 - 管理員不存在');
             return res.status(401).json({ error: '使用者名稱或密碼錯誤' });
         }
 
+        // 除錯資訊：記錄密碼比較過程
+        console.log('🔍 登入除錯 - 輸入密碼:', password);
+        console.log('🔍 登入除錯 - 密碼長度:', password.length);
+        console.log('🔍 登入除錯 - 儲存的雜湊:', admin.password_hash);
+        console.log('🔍 登入除錯 - 雜湊格式檢查:', admin.password_hash.startsWith('$2') ? '正確的bcrypt格式' : '可能不是bcrypt格式');
+        
         // 驗證密碼
         const isValidPassword = await bcrypt.compare(password, admin.password_hash);
         
+        console.log('🔍 登入除錯 - bcrypt.compare 結果:', isValidPassword);
+        
         if (!isValidPassword) {
+            console.log('❌ 登入除錯 - 密碼驗證失敗');
+            // 嘗試手動驗證常見密碼（僅用於除錯）
+            const testPasswords = ['SportSys2025@Secure', 'admin123', 'admin'];
+            for (const testPwd of testPasswords) {
+                const testResult = await bcrypt.compare(testPwd, admin.password_hash);
+                console.log(`🔍 測試密碼 "${testPwd}": ${testResult ? '✅ 匹配' : '❌ 不匹配'}`);
+            }
             return res.status(401).json({ error: '使用者名稱或密碼錯誤' });
         }
+        
+        console.log('✅ 登入除錯 - 密碼驗證成功');
 
         // 生成 JWT token
         const token = jwt.sign(
@@ -1204,6 +1234,86 @@ router.post('/create-custom-admin', async (req, res) => {
         res.status(500).json({ 
             error: '建立自訂管理員時發生錯誤',
             details: error.message 
+        });
+    }
+});
+
+// 管理員資料檢查端點（除錯用）
+router.get('/debug-admin-data', async (req, res) => {
+    try {
+        console.log('🔍 除錯端點被呼叫：檢查管理員資料');
+        
+        // 初始化服務
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.json({
+                error: 'Google 服務未初始化',
+                initialized: false,
+                authStatus: await personalGoogleServices.checkAuthStatus()
+            });
+        }
+
+        await personalGoogleServices.ensureSpreadsheetExists();
+
+        // 取得所有管理員
+        const admins = await personalDatabase.getAllAdmins();
+        
+        console.log('🔍 除錯資料：');
+        console.log(`   找到 ${admins.length} 個管理員帳號`);
+        
+        const adminData = admins.map(admin => ({
+            id: admin.id,
+            username: admin.username,
+            password_hash_length: admin.password_hash ? admin.password_hash.length : 0,
+            password_hash_prefix: admin.password_hash ? admin.password_hash.substring(0, 10) + '...' : '無',
+            password_hash_format: admin.password_hash ? (admin.password_hash.startsWith('$2') ? 'bcrypt格式正確' : '非bcrypt格式') : '無',
+            created_at: admin.created_at,
+            has_password_hash: !!admin.password_hash
+        }));
+        
+        console.log('🔍 管理員詳細資料:', JSON.stringify(adminData, null, 2));
+        
+        // 測試密碼驗證（使用常見密碼）
+        const testResults = [];
+        const testPasswords = ['SportSys2025@Secure', 'admin123', 'admin'];
+        
+        for (const admin of admins) {
+            if (admin.password_hash) {
+                for (const testPwd of testPasswords) {
+                    try {
+                        const isMatch = await bcrypt.compare(testPwd, admin.password_hash);
+                        testResults.push({
+                            username: admin.username,
+                            test_password: testPwd,
+                            match: isMatch
+                        });
+                        console.log(`🧪 測試 ${admin.username} 密碼 "${testPwd}": ${isMatch ? '✅ 匹配' : '❌ 不匹配'}`);
+                    } catch (error) {
+                        testResults.push({
+                            username: admin.username,
+                            test_password: testPwd,
+                            error: error.message
+                        });
+                    }
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            admins_count: admins.length,
+            admins: adminData,
+            password_tests: testResults,
+            google_auth_status: await personalGoogleServices.checkAuthStatus(),
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('❌ 除錯端點錯誤:', error);
+        res.status(500).json({
+            error: '除錯過程發生錯誤',
+            details: error.message,
+            stack: error.stack
         });
     }
 });

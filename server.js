@@ -156,4 +156,4 @@ const startServer = async () => {
     }
 };
 
-startServer(); 
+startServer(); // trigger restart
