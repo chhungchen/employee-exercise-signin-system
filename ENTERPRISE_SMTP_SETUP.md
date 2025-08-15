@@ -1,40 +1,57 @@
-# 企業 SMTP 郵件設定指南
+# SMTP 郵件設定指南
 
-## 📧 使用企業郵件伺服器配置
+## ⚠️ 企業防火牆限制說明
 
-### 當前企業郵件設定
+由於企業防火牆設定限制，Render 外部伺服器無法連接到企業內部的 Exchange 伺服器 (`ex2016.jih-sun.com.tw`)，因此改用 Gmail SMTP 服務。
+
+## 📧 Gmail SMTP 配置 (建議使用)
+
+### 當前建議的郵件設定
 
 ```bash
-SMTP_HOST=ex2016.jih-sun.com.tw
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=Jameschen@inftfinance.com.tw
-SMTP_PASS=您的企業郵件密碼
-SMTP_FROM=Jameschen@inftfinance.com.tw
+SMTP_USER=測試用Gmail帳號
+SMTP_PASS=Gmail應用程式密碼
+SMTP_FROM=測試用Gmail帳號
 ```
 
 ## 🔧 Render 環境變數設定
 
 在 Render Dashboard 的 "Environment" 分頁中設定：
 
-### SMTP 郵件服務配置：
+### Gmail SMTP 服務配置：
 ```
-SMTP_HOST=ex2016.jih-sun.com.tw
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=Jameschen@inftfinance.com.tw
-SMTP_PASS=在此輸入您的企業郵件密碼
-SMTP_FROM=Jameschen@inftfinance.com.tw
+SMTP_USER=您的Gmail帳號@gmail.com
+SMTP_PASS=Gmail應用程式密碼
+SMTP_FROM=您的Gmail帳號@gmail.com
 ```
 
-## ⚙️ 常見企業郵件設定
+## 📝 Gmail SMTP 設定步驟
 
-### Exchange Server 常用埠號：
-- **587** - SMTP with STARTTLS (建議使用)
-- **465** - SMTP over SSL/TLS
-- **25** - 標準 SMTP (通常被阻擋)
+### 步驟 1：準備 Gmail 帳號
+1. 準備一個 Gmail 帳號作為系統郵件寄送用途
+2. 建議使用專用的測試帳號而非個人帳號
 
-### 安全連線設定：
-- **STARTTLS**: 啟用 (PORT 587)
-- **SSL/TLS**: 根據伺服器要求
+### 步驟 2：啟用兩步驟驗證
+1. 前往 https://myaccount.google.com/security
+2. 點擊 "兩步驟驗證"
+3. 按照指示完成設定
+
+### 步驟 3：建立應用程式密碼
+1. 在安全性頁面找到 "應用程式密碼"
+2. 點擊 "應用程式密碼"
+3. 選擇 "郵件" 和 "其他 (自訂名稱)"
+4. 輸入名稱：`Employee Signin System`
+5. 點擊 "產生"
+6. **記下 16 位數的應用程式密碼**
+
+### Gmail SMTP 設定參數：
+- **SMTP 伺服器**: smtp.gmail.com
+- **埠號**: 587 (STARTTLS)
+- **加密**: STARTTLS
 - **身份驗證**: 需要
 
 ## 🔍 測試 SMTP 連線
