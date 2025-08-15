@@ -995,4 +995,64 @@ router.post('/schedule-report', authenticateToken, async (req, res) => {
     }
 });
 
+// 手動初始化管理員帳號 (僅用於故障排除)
+router.post('/init-admin', async (req, res) => {
+    try {
+        console.log('🔧 手動初始化管理員帳號...');
+        
+        // 檢查 Google 服務
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.status(500).json({ error: 'Google 服務初始化失敗，請先完成授權' });
+        }
+        
+        await personalGoogleServices.ensureSpreadsheetExists();
+        
+        // 檢查是否已有管理員
+        const existingAdmins = await personalDatabase.getAllAdmins();
+        console.log(`📊 現有管理員數量: ${existingAdmins.length}`);
+        
+        if (existingAdmins.length > 0) {
+            return res.json({ 
+                success: true, 
+                message: `管理員帳號已存在 (${existingAdmins.length} 個)`,
+                admins: existingAdmins.map(admin => ({ 
+                    id: admin.id, 
+                    username: admin.username, 
+                    created_at: admin.created_at 
+                }))
+            });
+        }
+        
+        // 建立預設管理員
+        const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'SportSys2025@Secure';
+        const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+        
+        await personalDatabase.createAdmin({
+            id: 1,
+            username: 'admin',
+            password_hash: hashedPassword,
+            created_at: moment().format('YYYY-MM-DD HH:mm:ss')
+        });
+        
+        console.log('✅ 預設管理員帳號建立成功');
+        
+        res.json({ 
+            success: true, 
+            message: '管理員帳號初始化完成',
+            admin: {
+                username: 'admin',
+                password: '使用環境變數中的 DEFAULT_ADMIN_PASSWORD 或預設密碼'
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ 初始化管理員帳號失敗:', error);
+        res.status(500).json({ 
+            error: '初始化過程中發生錯誤',
+            details: error.message 
+        });
+    }
+});
+
 module.exports = router;
