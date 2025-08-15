@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登入測試工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; text-align: center; }
+        .form-group {
+            margin: 15px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .preset-buttons {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        .preset-btn {
+            background: #28a745;
+            font-size: 12px;
+            padding: 8px 12px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔑 登入測試工具</h1>
+        
+        <div class="test-section">
+            <h3>快速測試預設帳號</h3>
+            <div class="preset-buttons">
+                <button class="preset-btn" onclick="fillCredentials('admin', 'SportSys2025@Secure')">
+                    admin / SportSys2025@Secure
+                </button>
+                <button class="preset-btn" onclick="fillCredentials('admin', 'admin123')">
+                    admin / admin123
+                </button>
+                <button class="preset-btn" onclick="fillCredentials('admin', 'admin')">
+                    admin / admin
+                </button>
+            </div>
+        </div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">使用者名稱：</label>
+                <input type="text" id="username" name="username" value="admin" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">密碼：</label>
+                <input type="password" id="password" name="password" value="SportSys2025@Secure" required>
+            </div>
+            
+            <div class="form-group">
+                <button type="button" onclick="testLogin()">測試登入</button>
+                <button type="button" onclick="testInitAdmin()">重新初始化管理員</button>
+                <button type="button" onclick="checkGoogleStatus()">檢查 Google 狀態</button>
+            </div>
+        </form>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function fillCredentials(username, password) {
+            document.getElementById('username').value = username;
+            document.getElementById('password').value = password;
+        }
+
+        async function testLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = '<div class="result info">正在嘗試登入...</div>';
+            
+            try {
+                const response = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const responseText = await response.text();
+                let data;
+                
+                try {
+                    data = JSON.parse(responseText);
+                } catch {
+                    data = { rawResponse: responseText };
+                }
+                
+                const statusClass = response.ok ? 'success' : 'error';
+                
+                resultDiv.innerHTML = `
+                    <div class="result ${statusClass}">
+                        <strong>登入測試結果</strong>
+                        
+                        帳號: ${username}
+                        密碼: ${password}
+                        狀態: ${response.status} ${response.statusText}
+                        
+                        回應內容:
+                        ${JSON.stringify(data, null, 2)}
+                        
+                        完整回應:
+                        ${responseText}
+                    </div>
+                `;
+                
+                if (response.ok && data.token) {
+                    resultDiv.innerHTML += `
+                        <div class="result success">
+                            <strong>✅ 登入成功！</strong>
+                            Token: ${data.token.substring(0, 50)}...
+                            
+                            <a href="/admin" target="_blank" style="background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">
+                                前往管理員後台
+                            </a>
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <strong>❌ 連接錯誤</strong>
+                        
+                        錯誤: ${error.message}
+                        
+                        可能原因:
+                        1. 網路連線問題
+                        2. 伺服器未回應
+                        3. API 端點不存在
+                    </div>
+                `;
+            }
+        }
+        
+        async function testInitAdmin() {
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = '<div class="result info">正在重新初始化管理員帳號...</div>';
+            
+            try {
+                const response = await fetch('/api/admin/init-admin', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                const statusClass = response.ok ? 'success' : 'error';
+                
+                resultDiv.innerHTML = `
+                    <div class="result ${statusClass}">
+                        <strong>初始化結果</strong>
+                        
+                        狀態: ${response.status} ${response.statusText}
+                        
+                        回應:
+                        ${JSON.stringify(data, null, 2)}
+                    </div>
+                `;
+                
+                if (response.ok) {
+                    // 自動用預設帳號測試登入
+                    setTimeout(() => {
+                        fillCredentials('admin', 'SportSys2025@Secure');
+                        testLogin();
+                    }, 1000);
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        初始化失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        async function checkGoogleStatus() {
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = '<div class="result info">正在檢查 Google 服務狀態...</div>';
+            
+            try {
+                const response = await fetch('/auth/google/status');
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="result ${data.authorized ? 'success' : 'error'}">
+                        <strong>Google 授權狀態</strong>
+                        
+                        ${JSON.stringify(data, null, 2)}
+                        
+                        ${!data.authorized ? `
+                        <p style="margin-top: 15px;">
+                            <a href="/auth/google" target="_blank" style="background: #dc3545; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                                重新進行 Google 授權
+                            </a>
+                        </p>
+                        ` : ''}
+                    </div>
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        檢查 Google 狀態失敗: ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // 頁面載入時自動檢查狀態
+        window.addEventListener('load', () => {
+            checkGoogleStatus();
+        });
+    </script>
+</body>
+</html>
