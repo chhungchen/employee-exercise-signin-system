@@ -1318,4 +1318,44 @@ router.get('/debug-admin-data', async (req, res) => {
     }
 });
 
+// 環境變數診斷端點
+router.get('/debug-env', async (req, res) => {
+    try {
+        const envStatus = {
+            USE_GOOGLE_SERVICES: process.env.USE_GOOGLE_SERVICES,
+            USE_PERSONAL_GOOGLE: process.env.USE_PERSONAL_GOOGLE,
+            hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+            hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+            hasGoogleRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
+            hasGoogleAccessToken: !!process.env.GOOGLE_ACCESS_TOKEN,
+            hasGoogleRefreshToken: !!process.env.GOOGLE_REFRESH_TOKEN,
+            hasSpreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID,
+            hasDriveFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
+            redirectUri: process.env.GOOGLE_REDIRECT_URI,
+            spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID ? process.env.GOOGLE_SPREADSHEET_ID.substring(0, 10) + '...' : null,
+            driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? process.env.GOOGLE_DRIVE_FOLDER_ID.substring(0, 10) + '...' : null
+        };
+        
+        // 嘗試初始化 Google 服務
+        let initResult = null;
+        try {
+            initResult = await personalGoogleServices.initialize();
+        } catch (initError) {
+            initResult = { error: initError.message };
+        }
+        
+        res.json({
+            environment: envStatus,
+            google_init_result: initResult,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('檢查環境變數錯誤:', error);
+        res.status(500).json({ 
+            error: '檢查環境變數失敗',
+            details: error.message 
+        });
+    }
+});
+
 module.exports = router;
