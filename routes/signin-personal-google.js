@@ -227,4 +227,26 @@ router.get('/auth-status', async (req, res) => {
     }
 });
 
+// 診斷環境變數狀態 (僅用於偵錯)
+router.get('/debug-env', async (req, res) => {
+    try {
+        const envStatus = {
+            USE_GOOGLE_SERVICES: process.env.USE_GOOGLE_SERVICES,
+            USE_PERSONAL_GOOGLE: process.env.USE_PERSONAL_GOOGLE,
+            hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+            hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+            hasGoogleRedirectUri: !!process.env.GOOGLE_REDIRECT_URI,
+            hasGoogleAccessToken: !!process.env.GOOGLE_ACCESS_TOKEN,
+            hasGoogleRefreshToken: !!process.env.GOOGLE_REFRESH_TOKEN,
+            hasSpreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID,
+            hasDriveFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
+            redirectUri: process.env.GOOGLE_REDIRECT_URI
+        };
+        res.json(envStatus);
+    } catch (error) {
+        console.error('檢查環境變數錯誤:', error);
+        res.status(500).json({ error: '檢查環境變數失敗' });
+    }
+});
+
 module.exports = router;
