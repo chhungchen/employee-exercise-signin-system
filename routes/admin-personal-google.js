@@ -1382,6 +1382,48 @@ router.post('/test-signin', async (req, res) => {
     }
 });
 
+// 檢查簽到資料完整性
+router.get('/debug-signins', async (req, res) => {
+    try {
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.status(500).json({ error: 'Google 服務初始化失敗' });
+        }
+        
+        // 取得所有簽到記錄的原始資料
+        const allSignins = await personalDatabase.getAllSignins();
+        
+        // 分析資料完整性
+        const dataAnalysis = {
+            total_records: allSignins.length,
+            with_photo: allSignins.filter(s => s.photo_url).length,
+            with_signature: allSignins.filter(s => s.signature_data).length,
+            sample_records: allSignins.slice(0, 3).map(signin => ({
+                signin_code: signin.signin_code,
+                employee_id: signin.employee_id,
+                has_photo_url: !!signin.photo_url,
+                has_signature_data: !!signin.signature_data,
+                photo_url_preview: signin.photo_url ? signin.photo_url.substring(0, 50) + '...' : 'N/A',
+                signature_preview: signin.signature_data ? signin.signature_data.substring(0, 30) + '...' : 'N/A',
+                created_at: signin.created_at
+            }))
+        };
+        
+        res.json({
+            success: true,
+            data_analysis: dataAnalysis,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('檢查簽到資料錯誤:', error);
+        res.status(500).json({ 
+            error: '檢查簽到資料失敗',
+            details: error.message 
+        });
+    }
+});
+
 // 環境變數診斷端點
 router.get('/debug-env', async (req, res) => {
     try {

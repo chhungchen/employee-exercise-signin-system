@@ -181,6 +181,7 @@
         <div class="test-section">
             <h3>📁 資料庫測試</h3>
             <button onclick="testDatabaseOperations()">測試資料庫操作</button>
+            <button onclick="checkSigninData()">檢查簽到資料完整性</button>
             <div id="databaseResult" class="result info" style="display: none;"></div>
         </div>
     </div>
@@ -468,6 +469,53 @@
                 }
             } catch (error) {
                 showResult(resultDiv, `❌ 寄送報告錯誤:\n${error.message}`, 'error');
+            }
+        }
+
+        // 檢查簽到資料完整性
+        async function checkSigninData() {
+            const resultDiv = document.getElementById('databaseResult');
+            showResult(resultDiv, '檢查簽到資料完整性...', 'loading');
+            
+            if (!authToken) {
+                showResult(resultDiv, '❌ 請先登入取得 Token', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/debug-signins', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    const analysis = result.data_analysis;
+                    const completenessReport = `
+📊 簽到資料完整性報告:
+• 總記錄數: ${analysis.total_records}
+• 有照片的記錄: ${analysis.with_photo} (${analysis.total_records > 0 ? Math.round(analysis.with_photo/analysis.total_records*100) : 0}%)
+• 有簽名的記錄: ${analysis.with_signature} (${analysis.total_records > 0 ? Math.round(analysis.with_signature/analysis.total_records*100) : 0}%)
+
+🔍 最新記錄樣本:
+${analysis.sample_records.map((record, index) => `
+記錄 ${index + 1}:
+  • 簽到代碼: ${record.signin_code}
+  • 員工編號: ${record.employee_id}
+  • 有照片: ${record.has_photo_url ? '✅' : '❌'}
+  • 有簽名: ${record.has_signature_data ? '✅' : '❌'}
+  • 建立時間: ${record.created_at}
+`).join('')}
+
+完整資料: ${JSON.stringify(result, null, 2)}`;
+                    
+                    showResult(resultDiv, completenessReport, 'success');
+                } else {
+                    showResult(resultDiv, `❌ 檢查失敗:\n${JSON.stringify(result, null, 2)}`, 'error');
+                }
+            } catch (error) {
+                showResult(resultDiv, `❌ 檢查錯誤:\n${error.message}`, 'error');
             }
         }
 

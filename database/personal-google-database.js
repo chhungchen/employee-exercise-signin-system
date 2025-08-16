@@ -276,7 +276,9 @@ class PersonalGoogleDatabase {
                     location: activity?.location || '',
                     activity_datetime: activity?.activity_datetime || '',
                     created_at: signin.created_at || '',
-                    photo_url: signin.photo_url || ''
+                    photo_url: signin.photo_url || '',
+                    photo_path: signin.photo_url || '', // 相容舊版本欄位名稱
+                    signature_data: signin.signature_data || ''
                 };
             });
 
