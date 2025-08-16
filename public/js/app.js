@@ -261,11 +261,29 @@ function hasSignature() {
     }
 }
 
-// 獲取簽名的Base64數據
+// 獲取簽名的Base64數據（壓縮版本）
 function getSignatureDataURL() {
     try {
         if (!signatureCanvas || !hasSignature()) return '';
-        return signatureCanvas.toDataURL('image/png');
+        
+        // 創建一個臨時畫布來壓縮簽名
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        // 降低解析度以減少檔案大小（從原始尺寸縮小至一半）
+        const scale = 0.5;
+        tempCanvas.width = signatureCanvas.width * scale;
+        tempCanvas.height = signatureCanvas.height * scale;
+        
+        // 設定白色背景（PNG轉JPEG需要）
+        tempCtx.fillStyle = '#FFFFFF';
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+        
+        // 繪製縮小的簽名
+        tempCtx.drawImage(signatureCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
+        
+        // 使用 JPEG 格式和較低品質以減少檔案大小
+        return tempCanvas.toDataURL('image/jpeg', 0.6);
     } catch (error) {
         console.error('獲取簽名數據時發生錯誤:', error);
         return '';
@@ -282,8 +300,8 @@ function compressImage(file) {
         img.onload = function() {
             // 計算新的尺寸，保持寬高比
             let { width, height } = img;
-            const maxSize = 800; // 最大尺寸
-            const maxFileSize = 0.5 * 1024 * 1024; // 0.5MB
+            const maxSize = 600; // 最大尺寸 (從800降至600)
+            const maxFileSize = 0.3 * 1024 * 1024; // 0.3MB (從0.5MB降至0.3MB)
             
             if (width > height) {
                 if (width > maxSize) {

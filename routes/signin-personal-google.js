@@ -16,7 +16,7 @@ const generateUniqueCode = (prefix) => {
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 10 * 1024 * 1024 // 10MB
+        fileSize: 2 * 1024 * 1024 // 2MB (降低至2MB以減少郵件大小)
     },
     fileFilter: (req, file, cb) => {
         if (file.mimetype.startsWith('image/')) {
