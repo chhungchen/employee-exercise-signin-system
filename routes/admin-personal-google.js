@@ -1394,7 +1394,14 @@ router.get('/debug-env', async (req, res) => {
             hasDriveFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
             redirectUri: process.env.GOOGLE_REDIRECT_URI,
             spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID ? process.env.GOOGLE_SPREADSHEET_ID.substring(0, 10) + '...' : null,
-            driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? process.env.GOOGLE_DRIVE_FOLDER_ID.substring(0, 10) + '...' : null
+            driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID ? process.env.GOOGLE_DRIVE_FOLDER_ID.substring(0, 10) + '...' : null,
+            // SMTP 配置
+            SMTP_HOST: process.env.SMTP_HOST,
+            SMTP_PORT: process.env.SMTP_PORT,
+            SMTP_USER: process.env.SMTP_USER,
+            hasSmtpPass: !!process.env.SMTP_PASS,
+            SMTP_FROM: process.env.SMTP_FROM,
+            EMAIL_FROM: process.env.EMAIL_FROM
         };
         
         // 嘗試初始化 Google 服務

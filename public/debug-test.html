@@ -155,7 +155,27 @@
                 </select>
             </div>
             <button onclick="testExport()">測試匯出報告</button>
+            <button onclick="testEmailReport()">測試寄送報告</button>
             <div id="exportResult" class="result info" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📧 郵件服務測試</h3>
+            <div class="form-group">
+                <label>收件人信箱:</label>
+                <input type="email" id="emailAddress" value="test@example.com" />
+            </div>
+            <div class="form-group">
+                <label>郵件格式:</label>
+                <select id="emailFormat">
+                    <option value="csv">CSV</option>
+                    <option value="excel">Excel</option>
+                    <option value="html">HTML</option>
+                </select>
+            </div>
+            <button onclick="testEmailReport()">測試寄送報告功能</button>
+            <button onclick="testEmailConfig()">檢查郵件服務配置</button>
+            <div id="emailResult" class="result info" style="display: none;"></div>
         </div>
 
         <div class="test-section">
@@ -399,6 +419,96 @@
                 }
             } catch (error) {
                 showResult(resultDiv, `❌ 資料庫操作錯誤:\n${error.message}`, 'error');
+            }
+        }
+
+        // 測試郵件報告功能 (從匯出功能複製並修改)
+        async function testEmailReport() {
+            const resultDiv = document.getElementById('emailResult');
+            showResult(resultDiv, '測試寄送報告功能...', 'loading');
+            
+            if (!authToken) {
+                showResult(resultDiv, '❌ 請先登入取得 Token', 'error');
+                return;
+            }
+            
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const format = document.getElementById('emailFormat').value;
+            const email = document.getElementById('emailAddress').value;
+            
+            if (!email || !email.includes('@')) {
+                showResult(resultDiv, '❌ 請輸入有效的收件人信箱', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/email-report', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        startDate,
+                        endDate,
+                        format,
+                        email,
+                        includePhotos: false,
+                        scheduleDaily: false
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showResult(resultDiv, `✅ 寄送報告測試成功:\n${JSON.stringify(result, null, 2)}`, 'success');
+                } else {
+                    showResult(resultDiv, `❌ 寄送報告失敗 (${response.status}):\n${JSON.stringify(result, null, 2)}`, 'error');
+                }
+            } catch (error) {
+                showResult(resultDiv, `❌ 寄送報告錯誤:\n${error.message}`, 'error');
+            }
+        }
+
+        // 檢查郵件服務配置
+        async function testEmailConfig() {
+            const resultDiv = document.getElementById('emailResult');
+            showResult(resultDiv, '檢查郵件服務配置...', 'loading');
+            
+            if (!authToken) {
+                showResult(resultDiv, '❌ 請先登入取得 Token', 'error');
+                return;
+            }
+            
+            try {
+                // 使用 debug-env 端點檢查 SMTP 環境變數
+                const response = await fetch('/api/admin/debug-env', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    const smtpConfig = {
+                        hasSmtpHost: !!result.environment.SMTP_HOST,
+                        hasSmtpPort: !!result.environment.SMTP_PORT,
+                        hasSmtpUser: !!result.environment.SMTP_USER,
+                        hasSmtpPass: !!result.environment.SMTP_PASS,
+                        hasSmtpFrom: !!result.environment.SMTP_FROM || !!result.environment.EMAIL_FROM,
+                        smtpHost: result.environment.SMTP_HOST,
+                        smtpPort: result.environment.SMTP_PORT
+                    };
+                    
+                    const configStatus = Object.values(smtpConfig).slice(0, 5).every(Boolean) ? '✅ 完整配置' : '❌ 配置不完整';
+                    
+                    showResult(resultDiv, `📧 郵件服務配置狀態: ${configStatus}\n${JSON.stringify(smtpConfig, null, 2)}`, smtpConfig ? 'success' : 'error');
+                } else {
+                    showResult(resultDiv, `❌ 檢查配置失敗:\n${JSON.stringify(result, null, 2)}`, 'error');
+                }
+            } catch (error) {
+                showResult(resultDiv, `❌ 檢查配置錯誤:\n${error.message}`, 'error');
             }
         }
 
