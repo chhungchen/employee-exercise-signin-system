@@ -137,7 +137,21 @@ router.post('/signin', upload.single('photo'), async (req, res) => {
                 console.log(`✅ 照片已上傳到 Google Drive: ${fileName}`);
             } catch (uploadError) {
                 console.error('照片上傳失敗:', uploadError);
-                return res.status(500).json({ error: '照片上傳失敗，請稍後再試' });
+                console.error('照片上傳錯誤詳情:', {
+                    message: uploadError.message,
+                    code: uploadError.code,
+                    status: uploadError.status,
+                    stack: uploadError.stack
+                });
+                return res.status(500).json({ 
+                    error: '照片上傳失敗，請稍後再試',
+                    debug: {
+                        message: uploadError.message,
+                        code: uploadError.code,
+                        driveFolder: process.env.GOOGLE_DRIVE_FOLDER_ID ? 'SET' : 'NOT_SET'
+                    },
+                    timestamp: new Date().toISOString()
+                });
             }
         }
 

@@ -858,9 +858,12 @@ router.post('/export-report', authenticateToken, async (req, res) => {
         }
         
         // 取得指定日期範圍的簽到記錄
-        const signins = await personalDatabase.getSigninsByDateRange(startDate, endDate);
+        const signins = await personalDatabase.getAllSigninsForExport({
+            startDate,
+            endDate
+        });
         
-        if (!signins.data || signins.data.length === 0) {
+        if (!signins || signins.length === 0) {
             return res.status(404).json({ error: '指定日期範圍內沒有簽到記錄' });
         }
         
@@ -870,25 +873,25 @@ router.post('/export-report', authenticateToken, async (req, res) => {
         
         switch (format) {
             case 'csv':
-                responseData = generateCSV(signins.data);
+                responseData = generateCSV(signins);
                 contentType = 'text/csv';
                 filename = `運動簽到報告_${startDate}_${endDate}.csv`;
                 break;
                 
             case 'excel':
-                responseData = await generateExcel(signins.data);
+                responseData = await generateExcel(signins);
                 contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                 filename = `運動簽到報告_${startDate}_${endDate}.xlsx`;
                 break;
                 
             case 'html':
-                responseData = await generatePDF(signins.data);
+                responseData = await generatePDF(signins);
                 contentType = 'text/html; charset=utf-8';
                 filename = `運動簽到報告_${startDate}_${endDate}.html`;
                 break;
                 
             case 'zip':
-                responseData = await generateZipWithPhotos(signins.data);
+                responseData = await generateZipWithPhotos(signins);
                 contentType = 'application/zip';
                 filename = `運動簽到完整備份_${startDate}_${endDate}.zip`;
                 break;
