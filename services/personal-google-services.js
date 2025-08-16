@@ -360,10 +360,44 @@ class PersonalGoogleServices {
             stream.push(fileBuffer);
             stream.push(null);
             
+            // 確保資料夾存在，如果不存在則建立或使用根目錄
+            let parentFolder = null;
+            if (this.driveFolder) {
+                try {
+                    // 檢查資料夾是否存在
+                    await this.drive.files.get({
+                        fileId: this.driveFolder,
+                        fields: 'id,name'
+                    });
+                    parentFolder = this.driveFolder;
+                    console.log(`✅ 使用現有資料夾: ${this.driveFolder}`);
+                } catch (folderError) {
+                    console.log(`⚠️ 資料夾 ${this.driveFolder} 不存在，建立新資料夾...`);
+                    try {
+                        // 建立新資料夾
+                        const folderResponse = await this.drive.files.create({
+                            resource: {
+                                name: 'Employee Exercise Photos',
+                                mimeType: 'application/vnd.google-apps.folder'
+                            },
+                            fields: 'id,name'
+                        });
+                        parentFolder = folderResponse.data.id;
+                        console.log(`✅ 建立新資料夾成功: ${parentFolder}`);
+                        
+                        // 更新環境變數中的資料夾 ID（僅記錄，不實際更新）
+                        console.log(`💡 建議更新環境變數 GOOGLE_DRIVE_FOLDER_ID 為: ${parentFolder}`);
+                    } catch (createError) {
+                        console.log(`⚠️ 無法建立資料夾，將上傳到根目錄: ${createError.message}`);
+                        parentFolder = null;
+                    }
+                }
+            }
+            
             const response = await this.drive.files.create({
                 resource: {
                     name: fileName,
-                    parents: this.driveFolder ? [this.driveFolder] : undefined
+                    parents: parentFolder ? [parentFolder] : undefined
                 },
                 media: {
                     mimeType: mimeType,
