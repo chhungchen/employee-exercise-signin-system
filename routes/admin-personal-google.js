@@ -960,9 +960,12 @@ router.post('/email-report', authenticateToken, async (req, res) => {
         }
 
         // 取得報告資料
-        const signins = await personalDatabase.getSigninsByDateRange(startDate, endDate);
+        const signins = await personalDatabase.getAllSigninsForExport({
+            startDate,
+            endDate
+        });
         
-        if (!signins.data || signins.data.length === 0) {
+        if (!signins || signins.length === 0) {
             return res.json({
                 success: false,
                 message: '選定期間內沒有簽到記錄',
@@ -977,8 +980,8 @@ router.post('/email-report', authenticateToken, async (req, res) => {
             const reportData = {
                 startDate,
                 endDate,
-                data: signins.data,
-                total: signins.total
+                data: signins,
+                total: signins.length
             };
 
             await emailService.sendReport(email, reportData, format);
