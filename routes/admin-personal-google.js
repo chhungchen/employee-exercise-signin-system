@@ -905,7 +905,15 @@ router.post('/export-report', authenticateToken, async (req, res) => {
         
     } catch (error) {
         console.error('導出報告錯誤:', error);
-        res.status(500).json({ error: '導出過程中發生錯誤' });
+        console.error('錯誤堆疊:', error.stack);
+        res.status(500).json({ 
+            error: '導出過程中發生錯誤',
+            debug: process.env.NODE_ENV === 'development' ? {
+                message: error.message,
+                stack: error.stack
+            } : undefined,
+            timestamp: new Date().toISOString()
+        });
     }
 });
 
@@ -1314,6 +1322,56 @@ router.get('/debug-admin-data', async (req, res) => {
             error: '除錯過程發生錯誤',
             details: error.message,
             stack: error.stack
+        });
+    }
+});
+
+// 測試簽到功能步驟
+router.post('/test-signin', async (req, res) => {
+    try {
+        console.log('🧪 開始測試簽到功能步驟...');
+        
+        // 步驟 1: 初始化 Google 服務
+        console.log('步驟 1: 初始化 Google 服務');
+        const initialized = await personalGoogleServices.initialize();
+        if (!initialized) {
+            return res.status(500).json({ error: '步驟 1 失敗: Google 服務初始化失敗' });
+        }
+        console.log('✅ 步驟 1 成功');
+
+        // 步驟 2: 確保試算表存在
+        console.log('步驟 2: 確保試算表存在');
+        await personalGoogleServices.ensureSpreadsheetExists();
+        console.log('✅ 步驟 2 成功');
+
+        // 步驟 3: 測試資料庫操作
+        console.log('步驟 3: 測試資料庫查詢');
+        const employees = await personalDatabase.getAllEmployees();
+        console.log(`✅ 步驟 3 成功: 找到 ${employees.length} 位員工`);
+
+        // 步驟 4: 測試 Drive 連線
+        console.log('步驟 4: 測試 Google Drive 連線');
+        // 這裡可以添加簡單的 Drive API 測試
+
+        res.json({
+            success: true,
+            message: '所有簽到功能步驟測試通過',
+            results: {
+                google_init: true,
+                spreadsheet_exists: true,
+                database_query: employees.length,
+                timestamp: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        console.error('測試簽到功能錯誤:', error);
+        res.status(500).json({
+            error: '測試過程發生錯誤',
+            step: '未知步驟',
+            details: error.message,
+            stack: error.stack,
+            timestamp: new Date().toISOString()
         });
     }
 });

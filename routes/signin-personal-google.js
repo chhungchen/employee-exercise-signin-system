@@ -167,7 +167,15 @@ router.post('/signin', upload.single('photo'), async (req, res) => {
 
     } catch (error) {
         console.error('簽到錯誤:', error);
-        res.status(500).json({ error: '簽到失敗，請稍後再試' });
+        console.error('錯誤堆疊:', error.stack);
+        res.status(500).json({ 
+            error: '簽到失敗，請稍後再試',
+            debug: process.env.NODE_ENV === 'development' ? {
+                message: error.message,
+                stack: error.stack
+            } : undefined,
+            timestamp: new Date().toISOString()
+        });
     }
 });
 
