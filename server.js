@@ -1,5 +1,6 @@
 // 載入環境變數
 require('dotenv').config({ path: '.env.local' });
+require('dotenv').config(); // 也載入標準 .env 檔案
 
 const express = require('express');
 const cors = require('cors');

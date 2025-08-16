@@ -10,4 +10,20 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      # Google 整合模式設定
+      - key: USE_GOOGLE_SERVICES
+        value: "true"
+      - key: USE_PERSONAL_GOOGLE
+        value: "true"
+      - key: DEFAULT_ADMIN_PASSWORD
+        value: "SportSys2025@Secure"
+      # Google OAuth 認證設定 (需要在 Render 後台設定敏感資訊)
+      # - key: GOOGLE_CLIENT_ID
+      #   value: [在 Render 後台設定]
+      # - key: GOOGLE_CLIENT_SECRET
+      #   value: [在 Render 後台設定]
+      # - key: GOOGLE_SPREADSHEET_ID
+      #   value: [在 Render 後台設定]
+      # - key: GOOGLE_REFRESH_TOKEN
+      #   value: [在 Render 後台設定]
     healthCheckPath: /api/health

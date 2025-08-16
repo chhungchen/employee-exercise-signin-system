@@ -119,3 +119,5 @@ PRODUCTION-CREDENTIALS.txt
 *CREDENTIALS*
 *PASSWORD*
 *SECRET*
+.env.local
+google-token.json

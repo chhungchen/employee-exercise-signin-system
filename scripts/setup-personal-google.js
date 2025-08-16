@@ -1,5 +1,5 @@
 // 載入環境變數
-require('dotenv').config();
+require('dotenv').config({ path: '.env.local' });
 
 const personalGoogleServices = require('../services/personal-google-services');
 
