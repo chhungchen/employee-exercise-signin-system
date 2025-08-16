@@ -48,7 +48,7 @@ const checkAuth = async (req, res, next) => {
 };
 
 // 員工簽到
-router.post('/signin', checkAuth, upload.single('photo'), async (req, res) => {
+router.post('/signin', upload.single('photo'), async (req, res) => {
     let signinData;
     if (req.file) {
         try {
@@ -77,7 +77,11 @@ router.post('/signin', checkAuth, upload.single('photo'), async (req, res) => {
         // 初始化服務
         const initialized = await personalGoogleServices.initialize();
         if (!initialized) {
-            return res.status(500).json({ error: 'Google 服務初始化失敗' });
+            return res.status(500).json({ 
+                error: '系統需要授權才能處理簽到', 
+                message: '請聯繫管理員完成系統授權設定',
+                authRequired: true 
+            });
         }
 
         await personalGoogleServices.ensureSpreadsheetExists();

@@ -592,7 +592,7 @@ router.get('/statistics', authenticateToken, checkGoogleAuth, async (req, res) =
 });
 
 // 匯出簽到記錄為 CSV
-router.get('/export/csv', authenticateToken, checkGoogleAuth, async (req, res) => {
+router.get('/export/signins', authenticateToken, checkGoogleAuth, async (req, res) => {
     try {
         const { startDate, endDate, department, activityType } = req.query;
         
