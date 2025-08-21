@@ -3,7 +3,9 @@ name: Keep Render Service Alive
 on:
   schedule:
     # 每 14 分鐘執行一次，但避開台灣時間 0-6 點（UTC 16-22）
-    - cron: '*/14 23-15 * * *'
+    # 分成兩個時間段：UTC 23-23 和 0-15 （對應台灣時間 7-6 點隔天）
+    - cron: '*/14 23 * * *'      # UTC 23:xx (台灣 07:xx)
+    - cron: '*/14 0-15 * * *'    # UTC 0-15:xx (台灣 08-23:xx)
   
   # 允許手動觸發
   workflow_dispatch:
