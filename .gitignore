@@ -1,0 +1,149 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+database/exercise_signin.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Uploads (for production, these should be stored externally)
+uploads/photos/*
+!uploads/photos/.gitkeep
+
+# Temporary files
+tmp/
+temp/
+
+# Local development
+test-*.html
+test-*.js
+
+# Build outputs
+dist/
+build/
+
+# Google service credentials and tokens
+google-token.json
+service-account-key.json
+credentials.json
+
+# Claude Code settings
+.claude/settings.local.json
+
+# Test files and debug files
+test-*.html
+test-*.js
+test-*.csv
+test-*.xlsx
+test-*.zip
+debug-*.html
+debug-*.js
+simple-*.html
+system-*.html
+init-*.html
+fix-*.html
+
+# Screenshots and temporary images
+*.PNG
+*.png
+*.jpg
+*.jpeg
+*擷取*
+*截圖*
+
+# Temporary markdown files
+*規劃*.md
+*計畫*.md
+DEPLOYMENT-READY.md
+
+# System files
+nul
+.nul
+
+# Production credentials and sensitive data
+PRODUCTION-CREDENTIALS.txt
+*CREDENTIALS*
+*SECRET*
+.env.local
+google-token.json
+
+# 排除管理腳本
+!scripts/update-admin-password.js
+!scripts/change-password*.js
+
+# 部署和技術文件（可能包含敏感資訊）
+*DEPLOYMENT*.md
+*GOOGLE_AUTH*.md
+*LOGIN_ISSUE*.md
+*ENV_SETTINGS*.md
+PASSWORD_UPDATE_GUIDE.md
+
+# 機敏資料文件（絕對不可提交）
+PRIVATE_SETTINGS.md
+*PRIVATE*.md
+*SECRET*.md
+*CONFIDENTIAL*.md
+
+# 專案開發文件（個人隱私資料）
+CLAUDE.md
+PROJECT_*.md
+DEVELOPMENT_*.md
+ARCHITECTURE_*.md

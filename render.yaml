@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: employee-exercise-signin
+    env: node
+    plan: free
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      # Google 整合模式設定
+      - key: USE_GOOGLE_SERVICES
+        value: "true"
+      - key: USE_PERSONAL_GOOGLE
+        value: "true"
+      - key: DEFAULT_ADMIN_PASSWORD
+        value: "[請參考環境變數設定]"
+      # Google OAuth 認證設定 (需要在 Render 後台設定敏感資訊)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET  
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: "https://employee-exercise-signin-system.onrender.com/auth/google/callback"
+      - key: GOOGLE_SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_DRIVE_FOLDER_ID
+        sync: false
+      - key: GOOGLE_ACCESS_TOKEN
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+    healthCheckPath: /api/health

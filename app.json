@@ -1,0 +1,32 @@
+{
+  "name": "員工運動社團活動簽到系統",
+  "description": "便捷的手機簽到系統，支援照片上傳和電子簽名",
+  "repository": "https://github.com/your-username/employee-exercise-signin",
+  "logo": "https://node-js-sample.herokuapp.com/node.png",
+  "keywords": ["node", "express", "sqlite", "employee", "signin"],
+  "image": "heroku/nodejs",
+  "env": {
+    "NODE_ENV": {
+      "description": "Node.js 執行環境",
+      "value": "production"
+    },
+    "JWT_SECRET": {
+      "description": "JWT 密鑰，用於身份驗證",
+      "generator": "secret"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "free"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "scripts": {
+    "postdeploy": "npm run init-db"
+  }
+}

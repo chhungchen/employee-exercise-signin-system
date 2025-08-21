@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>員工運動社團活動管理系統</title>
+    <link rel="stylesheet" href="/admin/css/admin.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- 登入頁面 -->
+    <div id="loginPage" class="login-page">
+        <div class="login-container">
+            <div class="login-header">
+                <i class="fas fa-shield-alt"></i>
+                <h1>管理員登入</h1>
+                <p>員工運動社團活動管理系統</p>
+            </div>
+            
+            <form id="loginForm" class="login-form">
+                <div class="form-group">
+                    <label for="username">帳號</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">密碼</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-sign-in-alt"></i> 登入
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 管理儀表板 -->
+    <div id="dashboardPage" class="dashboard-page" style="display: none;">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <i class="fas fa-dumbbell"></i>
+                <span>運動社團管理系統</span>
+            </div>
+            <div class="nav-user">
+                <span id="currentUser"></span>
+                                    <button id="logoutBtn" class="btn btn-outline">
+                    <i class="fas fa-sign-out-alt"></i> 登出
+                </button>
+            </div>
+        </nav>
+
+        <div class="dashboard-container">
+            <aside class="sidebar">
+                <nav class="sidebar-nav">
+                    <a href="#" class="nav-item active" data-page="overview">
+                        <i class="fas fa-chart-line"></i>
+                        <span>總覽</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="statistics">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>統計報表</span>
+                    </a>
+                    <a href="#" class="nav-item" data-page="schedule">
+                        <i class="fas fa-clock"></i>
+                        <span>定期寄送</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <main class="main-content">
+                <!-- 總覽頁面 -->
+                <div id="overviewPage" class="page active">
+                    <div class="page-header">
+                        <h2>系統總覽</h2>
+                        <p>歡迎使用員工運動社團活動管理系統</p>
+                    </div>
+
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="totalEmployees">0</h3>
+                                <p>總員工數</p>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-calendar-check"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="totalActivities">0</h3>
+                                <p>總活動數</p>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-clipboard-check"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="totalSignins">0</h3>
+                                <p>總簽到數</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="charts-grid">
+                        <div class="statistic-card">
+                            <h4>部門參與統計</h4>
+                            <div id="departmentChart"></div>
+                        </div>
+                        
+                        <div class="statistic-card">
+                            <h4>運動項目統計</h4>
+                            <div id="activityChart"></div>
+                        </div>
+                    </div>
+
+                    <!-- 系統工具區域 -->
+                    <div class="system-tools-section">
+                        <div class="section-header">
+                            <h3><i class="fas fa-tools"></i> 系統工具</h3>
+                        </div>
+                        <div class="tools-grid">
+                            <div class="tool-card">
+                                <div class="tool-icon">
+                                    <i class="fas fa-key"></i>
+                                </div>
+                                <div class="tool-content">
+                                    <h4>Google Token 設定</h4>
+                                    <p>取得環境變數，避免重新部署後需要重新授權</p>
+                                    <a href="/token-helper" target="_blank" class="btn btn-info">
+                                        <i class="fas fa-external-link-alt"></i> 開啟工具
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 每日資料導出功能 -->
+                    <div class="daily-export-section">
+                        <div class="section-header">
+                            <h3><i class="fas fa-download"></i> 每日資料導出</h3>
+                        </div>
+                        <div class="export-controls">
+                            <div class="export-options">
+                                <div class="date-range">
+                                    <label for="exportStartDate">開始日期：</label>
+                                    <input type="date" id="exportStartDate" class="form-input">
+                                    <label for="exportEndDate">結束日期：</label>
+                                    <input type="date" id="exportEndDate" class="form-input">
+                                </div>
+                                
+                                <div class="export-format">
+                                    <label for="exportFormat">導出格式：</label>
+                                    <select id="exportFormat" class="form-select">
+                                        <option value="csv">CSV 檔案</option>
+                                        <option value="excel">Excel 檔案</option>
+                                        <option value="html">HTML 網頁檢視</option>
+                                        <option value="zip">完整備份 (含照片)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="export-actions">
+                                    <button class="btn btn-primary" id="downloadReportBtn">
+                                        <i class="fas fa-download"></i> 下載報告
+                                    </button>
+                                    <button class="btn btn-success" id="emailReportBtn">
+                                        <i class="fas fa-envelope"></i> 寄送報告
+                                    </button>
+                                    <div class="schedule-option" style="margin-top: 10px;">
+                                        <label style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="scheduleEmail" style="margin: 0;">
+                                            <span>啟用定期寄送 (每日 08:00)</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="export-status" id="exportStatus" style="display: none;">
+                                <div class="status-message"></div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="recent-activity">
+                        <div class="section-header">
+                            <h3>所有簽到記錄</h3>
+                            <div class="section-actions">
+                                <button class="btn btn-danger" id="deleteSelectedBtn" style="display: none;">
+                                    <i class="fas fa-trash"></i> 刪除選中項目
+                                </button>
+                                <select id="bulkSortBy">
+                                    <option value="activity_datetime_desc">依活動日期排序 (新→舊)</option>
+                                    <option value="activity_datetime_asc">依活動日期排序 (舊→新)</option>
+                                    <option value="name_asc">依姓名排序 (A→Z)</option>
+                                    <option value="name_desc">依姓名排序 (Z→A)</option>
+                                    <option value="department_asc">依部門排序 (A→Z)</option>
+                                    <option value="activity_type_asc">依運動項目排序</option>
+                                </select>
+                                <button class="btn btn-success" id="exportSigninsBtn">
+                                    <i class="fas fa-download"></i> 匯出CSV
+                                </button>
+                            </div>
+                        </div>
+                        <div id="recentSignins" class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <input type="checkbox" id="selectAll">
+                                        </th>
+                                        <th>簽到編號</th>
+                                        <th>員工編號</th>
+                                        <th>姓名</th>
+                                        <th>部門</th>
+                                        <th>運動項目</th>
+                                        <th>地點</th>
+                                        <th>活動日期時間</th>
+                                        <th>照片</th>
+                                        <th>簽名</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentSigninsBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+
+
+                <!-- 統計報表頁面 -->
+                <div id="statisticsPage" class="page">
+                    <div class="page-header">
+                        <h2>統計報表</h2>
+                        <div class="filter-controls">
+                            <input type="date" id="startDate" placeholder="開始日期">
+                            <input type="date" id="endDate" placeholder="結束日期">
+                            <select id="departmentFilter">
+                                <option value="">所有部門</option>
+                            </select>
+                            <select id="activityTypeFilter">
+                                <option value="">所有運動項目</option>
+                                <option value="羽球">羽球</option>
+                                <option value="桌球">桌球</option>
+                                <option value="瑜珈">瑜珈</option>
+                                <option value="戶外活動">戶外活動</option>
+                                <option value="其他">其他</option>
+                            </select>
+                            <button id="generateReportBtn" class="btn btn-primary">
+                                <i class="fas fa-chart-bar"></i> 生成報表
+                            </button>
+                            <button id="exportStatisticsBtn" class="btn btn-success">
+                                <i class="fas fa-file-excel"></i> 匯出Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 統計卡片 -->
+                    <div class="statistics-cards">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-user-check"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="totalParticipants">0</h3>
+                                <p>參與人數</p>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-calendar-check"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="totalActivitiesCount">0</h3>
+                                <p>活動場次</p>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-medal"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="mostPopularActivity">--</h3>
+                                <p>最受歡迎項目</p>
+                            </div>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-percentage"></i>
+                            </div>
+                            <div class="stat-content">
+                                <h3 id="participationRate">0%</h3>
+                                <p>參與率</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 圖表區域 -->
+                    <div class="charts-section">
+                        <div class="chart-row">
+                            <div class="chart-card">
+                                <h3><i class="fas fa-chart-pie"></i> 運動項目分布</h3>
+                                <div id="activityTypeChart" class="chart-container"></div>
+                            </div>
+                            
+                            <div class="chart-card">
+                                <h3><i class="fas fa-chart-bar"></i> 部門參與統計</h3>
+                                <div id="departmentChart" class="chart-container"></div>
+                            </div>
+                        </div>
+                        
+                        <div class="chart-row">
+                            <div class="chart-card">
+                                <h3><i class="fas fa-chart-line"></i> 參與趨勢</h3>
+                                <div id="trendChart" class="chart-container"></div>
+                            </div>
+                            
+                            <div class="chart-card">
+                                <h3><i class="fas fa-clock"></i> 活動時段分析</h3>
+                                <div id="timeSlotChart" class="chart-container"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 詳細數據表格 -->
+                    <div class="statistics-table">
+                        <div class="section-header">
+                            <h3><i class="fas fa-table"></i> 詳細統計數據</h3>
+                            <div class="section-actions">
+                                <select id="sortBy">
+                                    <option value="participation_count">依參與次數排序</option>
+                                    <option value="activity_datetime">依日期排序</option>
+                                    <option value="department">依部門排序</option>
+                                    <option value="activity_type">依運動項目排序</option>
+                                </select>
+                                <select id="sortOrder">
+                                    <option value="desc">降序</option>
+                                    <option value="asc">升序</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table id="statisticsTable">
+                                <thead>
+                                    <tr>
+                                        <th>日期</th>
+                                        <th>運動項目</th>
+                                        <th>地點</th>
+                                        <th>參與人數</th>
+                                        <th>參與者</th>
+                                        <th>部門分布</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="statisticsTableBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 定期寄送頁面 -->
+                <div id="schedulePage" class="page">
+                    <div class="page-header">
+                        <h2>定期寄送設定</h2>
+                        <p>設定每日自動寄送報告的時間和選項</p>
+                    </div>
+
+                    <!-- 當前設定狀態 -->
+                    <div class="schedule-status-card">
+                        <div class="status-header">
+                            <h3><i class="fas fa-info-circle"></i> 目前狀態</h3>
+                            <div class="status-indicator" id="scheduleStatus">
+                                <span class="status-dot inactive"></span>
+                                <span class="status-text">未啟用</span>
+                            </div>
+                        </div>
+                        <div class="status-details" id="scheduleDetails">
+                            <p>尚未設定定期寄送</p>
+                        </div>
+                    </div>
+
+                    <!-- 設定表單 -->
+                    <div class="schedule-settings-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-cog"></i> 定期寄送設定</h3>
+                        </div>
+                        <div class="card-content">
+                            <form id="scheduleForm" class="schedule-form">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="scheduleEnabled">
+                                            <input type="checkbox" id="scheduleEnabled" name="enabled">
+                                            啟用定期寄送
+                                        </label>
+                                        <small class="form-hint">勾選此項目以啟用每日自動寄送報告</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="scheduleEmail">收件電子郵件</label>
+                                        <textarea id="scheduleEmail" name="email" placeholder="example1@company.com&#10;example2@company.com&#10;example3@company.com" rows="4" required></textarea>
+                                        <small class="form-hint">輸入接收每日報告的電子郵件地址，多個地址請換行分隔</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="scheduleTime">寄送時間</label>
+                                        <input type="time" id="scheduleTime" name="time" value="08:00" required>
+                                        <small class="form-hint">選擇每日寄送報告的時間（台灣時間）</small>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="scheduleFormat">報告格式</label>
+                                        <select id="scheduleFormat" name="format" required>
+                                            <option value="excel">Excel 檔案 (.xlsx)</option>
+                                            <option value="csv">CSV 檔案 (.csv)</option>
+                                            <option value="html">HTML 網頁檢視</option>
+                                            <option value="zip">完整備份 (含照片)</option>
+                                        </select>
+                                        <small class="form-hint">選擇報告的檔案格式</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="includePhotos">
+                                            <input type="checkbox" id="includePhotos" name="includePhotos">
+                                            包含照片和簽名
+                                        </label>
+                                        <small class="form-hint">包含完整的照片和電子簽名（檔案較大）</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-actions">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-save"></i> 儲存設定
+                                    </button>
+                                    <button type="button" class="btn btn-outline" id="testScheduleBtn">
+                                        <i class="fas fa-paper-plane"></i> 測試寄送
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" id="loadScheduleBtn">
+                                        <i class="fas fa-refresh"></i> 重新載入
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- 說明資訊 -->
+                    <div class="schedule-info-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-lightbulb"></i> 使用說明</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-icon">
+                                        <i class="fas fa-clock"></i>
+                                    </div>
+                                    <div class="info-content">
+                                        <h4>自動排程</h4>
+                                        <p>系統會在指定時間自動產生前一日的簽到報告並寄送至指定信箱</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="info-item">
+                                    <div class="info-icon">
+                                        <i class="fas fa-envelope"></i>
+                                    </div>
+                                    <div class="info-content">
+                                        <h4>郵件內容</h4>
+                                        <p>報告包含前一日的所有簽到記錄，包括員工資訊、活動詳情和統計數據</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="info-item">
+                                    <div class="info-icon">
+                                        <i class="fas fa-shield-alt"></i>
+                                    </div>
+                                    <div class="info-content">
+                                        <h4>資料安全</h4>
+                                        <p>所有郵件傳輸均經過加密，確保員工資料的安全性</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="info-item">
+                                    <div class="info-icon">
+                                        <i class="fas fa-chart-line"></i>
+                                    </div>
+                                    <div class="info-content">
+                                        <h4>靈活設定</h4>
+                                        <p>可隨時修改寄送時間、格式和收件地址，設定立即生效</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 最近寄送記錄 -->
+                    <div class="schedule-history-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-history"></i> 寄送記錄</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="history-list" id="scheduleHistory">
+                                <div class="history-empty">
+                                    <i class="fas fa-inbox"></i>
+                                    <p>尚無寄送記錄</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+
+
+    <!-- 載入提示 -->
+    <div id="loading" class="loading" style="display: none;">
+        <div class="loading-spinner"></div>
+        <p>載入中...</p>
+    </div>
+
+    <script src="/admin/js/admin.js"></script>
+</body>
+</html> 

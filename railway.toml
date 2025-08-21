@@ -1,0 +1,15 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+numReplicas = 1
+startCommand = "npm start"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+
+[environments.production]
+NODE_ENV = "production"
+
+[settings]
+generateDomain = true

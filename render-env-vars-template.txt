@@ -1,0 +1,56 @@
+# Render.com 環境變數設定範本
+# 請複製以下內容到您的 Render.com Dashboard
+# 並填入您的實際 Google OAuth 憑證
+
+# ===== 系統基本設定 =====
+NODE_ENV=production
+PORT=3000
+
+# ===== Google 服務整合設定 =====
+USE_GOOGLE_SERVICES=true
+USE_PERSONAL_GOOGLE=true
+
+# === 個人 Google 帳戶設定 ===
+GOOGLE_CLIENT_ID=您的Google用戶端ID.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=您的Google用戶端密鑰
+GOOGLE_REDIRECT_URI=https://employee-exercise-signin-system.onrender.com/auth/google/callback
+
+# === 系統自動設定的 Token（請保持空白）===
+GOOGLE_ACCESS_TOKEN=
+GOOGLE_REFRESH_TOKEN=
+GOOGLE_TOKEN_SCOPE=https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file
+
+# === Google 資源 ID（系統自動設定，請保持空白）===
+GOOGLE_SPREADSHEET_ID=
+GOOGLE_DRIVE_FOLDER_ID=
+
+# ===== 安全設定 =====
+DEFAULT_ADMIN_PASSWORD=請設定您的安全密碼
+JWT_SECRET=your-super-secure-secret-key-here
+
+# ===== 檔案上傳設定 =====
+MAX_FILE_SIZE=10485760
+ALLOWED_FILE_TYPES=image/jpeg,image/png,image/gif
+
+# ===== CORS 設定 =====
+CORS_ORIGIN=https://employee-exercise-signin-system.onrender.com
+
+# ===== 速率限制設定 =====
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
+
+# ===== 郵件服務設定（定期寄送功能所需）=====
+# 優先使用 Google OAuth2 (與其他服務一致)，SMTP 作為備用方案
+EMAIL_FROM=您的Gmail地址（需與Google OAuth2授權帳號一致）
+
+# 備用 SMTP 設定（當 Google OAuth2 不可用時）
+SMTP_HOST=您的SMTP伺服器地址
+SMTP_PORT=587
+SMTP_USER=您的SMTP用戶名
+SMTP_PASS=您的SMTP密碼
+
+# ===== 其他設定 =====
+TZ=Asia/Taipei
+LOCALE=zh-TW
+DEBUG=false
+LOG_LEVEL=info
