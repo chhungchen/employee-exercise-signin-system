@@ -1,0 +1,10 @@
+[33m807c612[m[33m ([m[1;36mHEAD -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m feat: 添加個人 Google 帳戶整合功能
+[33m6ea8a01[m docs: Add comprehensive project documentation
+[33maf649aa[m feat: Add Google Sheets & Drive integration
+[33m01207df[m Fix data consistency and caching issues:
+[33m77131e1[m feat: Add script to change admin password easily
+[33mf8fcc10[m Fix UI issues and improve mobile experience:
+[33m70e12ee[m Comprehensive UI and mobile improvements:
+[33ma09c37a[m Final fixes and security review:
+[33mcd53be0[m Fix user feedback issues:
+[33m39951a4[m Fix SQLite3 compilation issue for Linux deployment
