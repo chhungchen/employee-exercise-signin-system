@@ -188,6 +188,17 @@ const startServer = async () => {
             console.log('✅ SQLite 資料庫初始化完成');
         }
 
+        // 初始化 Token 監控服務
+        if (useGoogleServices && usePersonalGoogle) {
+            try {
+                const tokenMonitor = require('./services/token-monitor');
+                tokenMonitor.initialize();
+                console.log('✅ Token 監控服務初始化完成');
+            } catch (error) {
+                console.error('⚠️ Token 監控服務初始化失敗:', error);
+            }
+        }
+
         // 初始化 Keep-Alive 服務（防止 Render 平台休眠）
         try {
             const keepAliveService = require('./services/keep-alive-service');

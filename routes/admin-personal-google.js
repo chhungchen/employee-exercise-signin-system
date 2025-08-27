@@ -1687,4 +1687,131 @@ router.post('/update-password', async (req, res) => {
     }
 });
 
+// ===== Token 監控相關 API =====
+
+// 取得 Token 監控狀態
+router.get('/token-monitor/status', authenticateToken, async (req, res) => {
+    try {
+        const tokenMonitor = require('../services/token-monitor');
+        const stats = tokenMonitor.getStats();
+        
+        res.json({
+            success: true,
+            monitor_status: stats,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('取得 Token 監控狀態錯誤:', error);
+        res.status(500).json({ error: '取得監控狀態失敗' });
+    }
+});
+
+// 手動執行健康檢查
+router.post('/token-monitor/health-check', authenticateToken, async (req, res) => {
+    try {
+        const tokenMonitor = require('../services/token-monitor');
+        const result = await tokenMonitor.manualHealthCheck();
+        
+        res.json({
+            success: result,
+            message: result ? 'Token 健康檢查通過' : 'Token 健康檢查失敗',
+            monitor_status: tokenMonitor.getStats(),
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('手動健康檢查錯誤:', error);
+        res.status(500).json({ 
+            success: false,
+            error: '手動健康檢查失敗',
+            details: error.message 
+        });
+    }
+});
+
+// 手動執行深度檢查
+router.post('/token-monitor/deep-check', authenticateToken, async (req, res) => {
+    try {
+        const tokenMonitor = require('../services/token-monitor');
+        const result = await tokenMonitor.manualDeepCheck();
+        
+        res.json({
+            success: result,
+            message: result ? 'Token 深度檢查通過' : 'Token 深度檢查失敗',
+            monitor_status: tokenMonitor.getStats(),
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('手動深度檢查錯誤:', error);
+        res.status(500).json({ 
+            success: false,
+            error: '手動深度檢查失敗',
+            details: error.message 
+        });
+    }
+});
+
+// 發送測試警告
+router.post('/token-monitor/test-alert', authenticateToken, async (req, res) => {
+    try {
+        const tokenMonitor = require('../services/token-monitor');
+        await tokenMonitor.sendTestAlert();
+        
+        res.json({
+            success: true,
+            message: '測試警告已發送',
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('發送測試警告錯誤:', error);
+        res.status(500).json({ 
+            success: false,
+            error: '發送測試警告失敗',
+            details: error.message 
+        });
+    }
+});
+
+// 重設監控統計
+router.post('/token-monitor/reset-stats', authenticateToken, async (req, res) => {
+    try {
+        const tokenMonitor = require('../services/token-monitor');
+        tokenMonitor.resetStats();
+        
+        res.json({
+            success: true,
+            message: 'Token 監控統計已重設',
+            monitor_status: tokenMonitor.getStats(),
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('重設監控統計錯誤:', error);
+        res.status(500).json({ 
+            success: false,
+            error: '重設監控統計失敗',
+            details: error.message 
+        });
+    }
+});
+
+// 生成週報告（手動觸發）
+router.post('/token-monitor/weekly-report', authenticateToken, async (req, res) => {
+    try {
+        const tokenMonitor = require('../services/token-monitor');
+        await tokenMonitor.generateWeeklyReport();
+        
+        res.json({
+            success: true,
+            message: 'Token 監控週報告已生成並發送',
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('生成週報告錯誤:', error);
+        res.status(500).json({ 
+            success: false,
+            error: '生成週報告失敗',
+            details: error.message 
+        });
+    }
+});
+
 module.exports = router;
