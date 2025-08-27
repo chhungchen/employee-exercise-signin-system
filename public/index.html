@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>員工運動社團活動簽到表</title>
+    
+    <!-- PWA支援 -->
+    <meta name="description" content="員工運動社團活動簽到表 - 便捷的手機簽到系統">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="運動簽到">
+    
+    <!-- 觸控圖標 -->
+    <link rel="apple-touch-icon" sizes="180x180" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImdyYWQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiM2NjdlZWEiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM3NjRiYTIiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgZmlsbD0idXJsKCNncmFkKSIvPjx0ZXh0IHg9IjkwIiB5PSIxMTAiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0OCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPvCfjYs8L3RleHQ+PC9zdmc+">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJncmFkIiB4MT0iMCUiIHkxPSIwJSIgeDI9IjEwMCUiIHkyPSIxMDAlIj48c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNjY3ZWVhIi8+PHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjNzY0YmEyIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiBmaWxsPSJ1cmwoI2dyYWQpIi8+PHRleHQgeD0iMTYiIHk9IjIyIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7wn42LPC90ZXh0Pjwvc3ZnPg==">
+    
+    <!-- 樣式 -->
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><i class="fas fa-dumbbell"></i> 員工運動社團活動簽到表</h1>
+            <p>歡迎參加運動活動，請填寫以下資料進行簽到</p>
+        </header>
+
+        <main class="main-content">
+            <form id="signinForm" class="signin-form">
+                <div class="form-section">
+                    <h2><i class="fas fa-user"></i> 基本資料</h2>
+                    
+                    <div class="form-group">
+                        <label for="employeeId">員工編號 <span class="required">*</span></label>
+                        <input type="text" id="employeeId" name="employeeId" required 
+                               placeholder="請輸入員工編號">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="name">姓名 <span class="required">*</span></label>
+                        <input type="text" id="name" name="name" required 
+                               placeholder="請輸入姓名">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="department">部門 <span class="required">*</span></label>
+                        <input type="text" id="department" name="department" required 
+                               placeholder="請輸入部門名稱">
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2><i class="fas fa-running"></i> 活動資訊</h2>
+                    
+                    <div class="form-group">
+                        <label for="activityType">運動項目 <span class="required">*</span></label>
+                        <select id="activityType" name="activityType" required>
+                            <option value="">請選擇運動項目</option>
+                            <option value="羽球">🏸 羽球</option>
+                            <option value="桌球">🏓 桌球</option>
+                            <option value="瑜珈">🧘 瑜珈</option>
+                            <option value="戶外活動">🏃 戶外活動</option>
+                            <option value="其他">⚽ 其他</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="location">地點 <span class="required">*</span></label>
+                        <input type="text" id="location" name="location" required 
+                               placeholder="請輸入活動地點">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="activityDateTime">日期時間 <span class="required">*</span></label>
+                        <input type="datetime-local" id="activityDateTime" name="activityDateTime" required>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2><i class="fas fa-camera"></i> 上傳照片 (證明) <span class="required">*</span></h2>
+                    
+                    <div class="form-group">
+                        <div class="photo-upload-container">
+                            <input type="file" id="photoUpload" name="photoUpload" 
+                                   accept="image/*" capture="environment"
+                                   class="photo-input" required>
+                            <div class="photo-controls">
+                                <button type="button" id="selectPhotoBtn" class="btn btn-primary">
+                                    <i class="fas fa-images"></i> 選擇照片
+                                </button>
+                                <button type="button" id="cameraBtn" class="btn btn-primary">
+                                    <i class="fas fa-camera"></i> 拍照
+                                </button>
+                                <button type="button" id="removePhotoBtn" class="btn btn-secondary" style="display: none;">
+                                    <i class="fas fa-trash"></i> 取消照片
+                                </button>
+                            </div>
+                            <div class="photo-preview" id="photoPreview">
+                                <i class="fas fa-image"></i>
+                                <p>尚未選擇照片</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h2><i class="fas fa-signature"></i> 簽名確認 <span class="required">*</span></h2>
+                    
+                    <div class="form-group">
+                        <div class="signature-container">
+                            <canvas id="signatureCanvas" class="signature-canvas"></canvas>
+                            <div class="signature-placeholder" id="signaturePlaceholder">
+                                <i class="fas fa-pen"></i>
+                                <p>請在此處簽名</p>
+                            </div>
+                            <div class="signature-controls">
+                                <small class="signature-help">簽名完成後，可點擊下方按鈕清除重簽</small>
+                                <button type="button" id="clearSignatureBtn" class="btn btn-secondary btn-sm">
+                                    <i class="fas fa-eraser"></i> 清除重簽
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-check"></i> 確認簽到
+                    </button>
+                    <button type="reset" class="btn btn-secondary">
+                        <i class="fas fa-redo"></i> 重新填寫
+                    </button>
+                </div>
+            </form>
+
+            <!-- 簽到成功訊息 -->
+            <div id="successMessage" class="success-message" style="display: none;">
+                <div class="success-content">
+                    <i class="fas fa-check-circle"></i>
+                    <h3>簽到成功！</h3>
+                    <div id="successDetails"></div>
+                    <div class="action-row">
+                        <button class="btn btn-primary" id="continueSigninBtn">
+                            <i class="fas fa-plus"></i> 繼續簽到
+                        </button>
+                        <button class="btn btn-secondary" id="closeSuccessBtn">
+                            <i class="fas fa-check"></i> 完成確認
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2025 員工運動社團活動簽到系統</p>
+        </footer>
+    </div>
+
+    <!-- 載入提示 -->
+    <div id="loading" class="loading" style="display: none;">
+        <div class="loading-spinner"></div>
+        <p>處理中，請稍候...</p>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html> 

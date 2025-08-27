@@ -1,0 +1,79 @@
+name: Keep Render Service Alive
+
+on:
+  schedule:
+    # 每 14 分鐘執行一次，但避開台灣時間 0-6 點（UTC 16-22）
+    # 分成兩個時間段：UTC 23-23 和 0-15 （對應台灣時間 7-6 點隔天）
+    - cron: '*/14 23 * * *'      # UTC 23:xx (台灣 07:xx)
+    - cron: '*/14 0-15 * * *'    # UTC 0-15:xx (台灣 08-23:xx)
+  
+  # 允許手動觸發
+  workflow_dispatch:
+
+env:
+  TZ: 'Asia/Taipei'
+
+jobs:
+  ping-service:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📅 檢查當前時間
+      run: |
+        echo "Current time: $(TZ=${{ env.TZ }} date '+%Y-%m-%d %H:%M:%S %Z')"
+    
+    - name: 📡 Ping 主要服務
+      id: ping_main
+      run: |
+        echo "正在 ping 主要服務..."
+        
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          --max-time 30 \
+          --retry 3 \
+          --retry-delay 5 \
+          "https://employee-exercise-signin-system.onrender.com/api/health")
+        
+        echo "http_code=$HTTP_CODE" >> $GITHUB_OUTPUT
+        
+        if [ $HTTP_CODE -eq 200 ]; then
+          echo "✅ 主要服務運行正常 (HTTP $HTTP_CODE)"
+        elif [ $HTTP_CODE -eq 502 ] || [ $HTTP_CODE -eq 503 ]; then
+          echo "🔄 服務可能正在重啟中 (HTTP $HTTP_CODE)"
+        else
+          echo "⚠️ 服務返回異常狀態 (HTTP $HTTP_CODE)"
+        fi
+    
+    - name: 🏥 健康檢查
+      if: steps.ping_main.outputs.http_code == '200'
+      continue-on-error: true
+      run: |
+        echo "執行詳細健康檢查..."
+        
+        HEALTH=$(curl -s --max-time 10 \
+          "https://employee-exercise-signin-system.onrender.com/api/health")
+        
+        echo "健康檢查響應: $HEALTH"
+        
+        # 解析 uptime
+        UPTIME=$(echo "$HEALTH" | grep -o '"uptime":[0-9.]*' | cut -d':' -f2)
+        if [ ! -z "$UPTIME" ]; then
+          echo "服務運行時間: ${UPTIME} 秒"
+        fi
+    
+    - name: 📊 記錄結果
+      if: always()
+      run: |
+        echo "=== Keep-Alive 監控摘要 ==="
+        echo "服務: Employee Exercise SignIn"
+        echo "狀態代碼: ${{ steps.ping_main.outputs.http_code }}"
+        echo "時間: $(TZ=${{ env.TZ }} date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "GitHub Action: 定期監控成功執行"
+        echo "========================="
+    
+    - name: 🚨 失敗通知
+      if: steps.ping_main.outputs.http_code != '200' && steps.ping_main.outputs.http_code != '502' && steps.ping_main.outputs.http_code != '503'
+      run: |
+        echo "🚨 服務監控警告"
+        echo "HTTP 狀態: ${{ steps.ping_main.outputs.http_code }}"
+        echo "這可能表示服務出現問題，建議手動檢查"
+        # 注意：這不會導致 workflow 失敗，只是記錄警告
