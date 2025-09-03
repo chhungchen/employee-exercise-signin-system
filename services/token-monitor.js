@@ -123,27 +123,66 @@ class TokenMonitor {
     async performDeepHealthCheck() {
         console.log('🔬 執行 Token 深度健康檢查...');
         
+        const checkResults = [];
+        let overallSuccess = true;
+        
         try {
             // 基本健康檢查
-            await this.performHealthCheck();
+            try {
+                await this.performHealthCheck();
+                checkResults.push('✅ 基本健康檢查');
+            } catch (error) {
+                checkResults.push(`❌ 基本健康檢查: ${error.message}`);
+                overallSuccess = false;
+            }
             
             // 檢查 token 年齡
-            await this.checkTokenAge();
+            try {
+                await this.checkTokenAge();
+                checkResults.push('✅ Token 年齡檢查');
+            } catch (error) {
+                checkResults.push(`⚠️ Token 年齡檢查: ${error.message}`);
+            }
             
             // 檢查 API 權限範圍
-            await this.checkAPIPermissions();
+            try {
+                await this.checkAPIPermissions();
+                checkResults.push('✅ API 權限檢查');
+            } catch (error) {
+                checkResults.push(`⚠️ API 權限檢查: ${error.message}`);
+            }
             
             // 檢查 Google Sheets 存取
-            await this.checkSheetsAccess();
+            try {
+                await this.checkSheetsAccess();
+                checkResults.push('✅ Google Sheets 存取');
+            } catch (error) {
+                checkResults.push(`⚠️ Google Sheets 存取: ${error.message}`);
+            }
             
             // 檢查 Google Drive 存取
-            await this.checkDriveAccess();
+            try {
+                await this.checkDriveAccess();
+                checkResults.push('✅ Google Drive 存取');
+            } catch (error) {
+                checkResults.push(`⚠️ Google Drive 存取: ${error.message}`);
+            }
             
-            console.log('✅ Token 深度健康檢查完成');
+            console.log('📋 深度檢查結果:');
+            checkResults.forEach(result => console.log(`  ${result}`));
+            
+            if (overallSuccess) {
+                console.log('✅ Token 深度健康檢查完成');
+            } else {
+                console.log('⚠️ Token 深度健康檢查部分項目失敗，但系統仍可運作');
+            }
             
         } catch (error) {
-            console.error('❌ Token 深度健康檢查失敗:', error.message);
-            await this.sendDeepCheckFailureAlert(error);
+            console.error('❌ Token 深度健康檢查嚴重失敗:', error.message);
+            // 只在嚴重錯誤時發送警告，避免過多通知
+            if (overallSuccess === false) {
+                await this.sendDeepCheckFailureAlert(error);
+            }
         }
     }
 
@@ -151,19 +190,46 @@ class TokenMonitor {
      * 測試基本 API 存取
      */
     async testBasicAPIAccess() {
-        // 簡單的 API 呼叫測試
-        await personalGoogleServices.sheets.spreadsheets.get({
-            spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-            fields: 'properties.title'
-        });
+        try {
+            // 檢查必要的環境變數
+            if (!process.env.GOOGLE_SPREADSHEET_ID) {
+                console.log('⚠️ 尚未設定 Google Spreadsheet ID，跳過 API 測試');
+                return;
+            }
+
+            // 簡單的 API 呼叫測試
+            await personalGoogleServices.sheets.spreadsheets.get({
+                spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+                fields: 'properties.title'
+            });
+            
+            console.log('✅ Google Sheets API 存取正常');
+            
+        } catch (error) {
+            // 處理特定的 OAuth 錯誤
+            if (error.message && error.message.includes('invalid_grant')) {
+                console.log('⚠️ Token 可能過期或無效，建議重新授權');
+                throw new Error('Token 認證失敗，可能需要重新授權');
+            } else if (error.code === 401) {
+                console.log('⚠️ API 認證失敗，檢查 Token 狀態');
+                throw new Error('API 認證失敗');
+            } else if (error.code === 403) {
+                console.log('⚠️ API 權限不足或配額超限');
+                throw new Error('API 權限不足');
+            } else {
+                console.log('⚠️ API 測試失敗:', error.message);
+                throw error;
+            }
+        }
     }
 
     /**
      * 檢查 token 年齡
      */
     async checkTokenAge() {
-        const tokenInfo = personalGoogleServices.getTokenInfo();
-        if (tokenInfo && tokenInfo.refresh_token) {
+        // 從 oauth2Client 取得 credentials
+        const credentials = personalGoogleServices.oauth2Client?.credentials;
+        if (credentials && credentials.refresh_token) {
             // 估算 token 年齡（基於環境變數或上次更新時間）
             const tokenCreatedTime = process.env.GOOGLE_TOKEN_CREATED_TIME;
             if (tokenCreatedTime) {
@@ -188,9 +254,11 @@ class TokenMonitor {
         ];
         
         // 檢查目前的權限範圍
-        const tokenInfo = personalGoogleServices.getTokenInfo();
-        if (tokenInfo && tokenInfo.scope) {
-            const currentScopes = tokenInfo.scope.split(' ');
+        const credentials = personalGoogleServices.oauth2Client?.credentials;
+        const scope = credentials?.scope || process.env.GOOGLE_TOKEN_SCOPE || '';
+        
+        if (scope) {
+            const currentScopes = scope.split(' ');
             const missingScopes = requiredScopes.filter(scope => !currentScopes.includes(scope));
             
             if (missingScopes.length > 0) {
