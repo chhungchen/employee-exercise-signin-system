@@ -11,56 +11,182 @@ class EmailService {
 
     // 初始化郵件服務
     async initialize() {
-        try {
-            // 檢查是否有 SMTP 配置
-            const smtpHost = process.env.SMTP_HOST;
-            const smtpPort = process.env.SMTP_PORT || 587;
-            const smtpUser = process.env.SMTP_USER;
-            const smtpPass = process.env.SMTP_PASS;
-
-            if (!smtpHost || !smtpUser || !smtpPass) {
-                console.log('⚠️ 郵件服務未配置 (缺少 SMTP 設定)');
-                console.log('💡 請在 .env.local 中設定：');
-                console.log('   SMTP_HOST=your-smtp-host');
-                console.log('   SMTP_PORT=587');
-                console.log('   SMTP_USER=your-email@domain.com');
-                console.log('   SMTP_PASS=your-password');
-                console.log('   EMAIL_FROM=your-email@domain.com');
-                return false;
-            }
-
-            // 建立 SMTP 傳輸器
-            this.transporter = nodemailer.createTransport({
-                host: smtpHost,
-                port: parseInt(smtpPort),
-                secure: smtpPort == 465, // true for 465, false for other ports
-                auth: {
-                    user: smtpUser,
-                    pass: smtpPass
-                },
-                tls: {
-                    rejectUnauthorized: false // 接受自簽憑證
-                }
-            });
-
-            // 驗證連線
-            await this.transporter.verify();
-            this.initialized = true;
-            console.log('✅ 郵件服務初始化成功');
-            return true;
-
-        } catch (error) {
-            console.error('❌ 郵件服務初始化失敗:', error.message);
-            
-            // 提供常見問題的解決建議
-            if (error.code === 'EAUTH') {
-                console.log('💡 認證失敗，請檢查 SMTP_USER 和 SMTP_PASS 是否正確');
-            } else if (error.code === 'ECONNREFUSED') {
-                console.log('💡 連線被拒絕，請檢查 SMTP_HOST 和 SMTP_PORT 是否正確');
-            }
-            
+        console.log('🔧 初始化郵件服務...');
+        
+        // 取得 SMTP 配置
+        const smtpConfig = this.getSMTPConfig();
+        if (!smtpConfig) {
             return false;
         }
+
+        // 嘗試建立連線，最多重試 3 次
+        const maxRetries = 3;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`🔄 嘗試連線到 SMTP 伺服器 (第 ${attempt}/${maxRetries} 次): ${smtpConfig.host}:${smtpConfig.port}`);
+                
+                // 建立 SMTP 傳輸器配置
+                const transportConfig = {
+                    host: smtpConfig.host,
+                    port: parseInt(smtpConfig.port),
+                    secure: smtpConfig.port == 465, // true for 465, false for other ports
+                    tls: {
+                        rejectUnauthorized: false // 接受自簽憑證
+                    },
+                    // 連線超時設定
+                    connectionTimeout: 15000, // 15 秒連線超時
+                    greetingTimeout: 10000,   // 10 秒問候超時
+                    socketTimeout: 30000,     // 30 秒 socket 超時
+                    // 連線池設定
+                    pool: true,
+                    maxConnections: 5,
+                    maxMessages: 100,
+                    // 調試模式 (開發環境)
+                    debug: process.env.NODE_ENV === 'development'
+                };
+
+                // 只有需要認證時才加入 auth 設定
+                if (smtpConfig.requiresAuth && smtpConfig.user && smtpConfig.pass) {
+                    transportConfig.auth = {
+                        user: smtpConfig.user,
+                        pass: smtpConfig.pass
+                    };
+                }
+
+                this.transporter = nodemailer.createTransport(transportConfig);
+
+                // 驗證連線，設定超時
+                const verifyPromise = this.transporter.verify();
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('SMTP 驗證超時')), 20000);
+                });
+                
+                await Promise.race([verifyPromise, timeoutPromise]);
+                
+                this.initialized = true;
+                console.log(`✅ 郵件服務初始化成功 (${smtpConfig.host}:${smtpConfig.port})`);
+                console.log(`📧 寄件者: ${smtpConfig.from}`);
+                return true;
+
+            } catch (error) {
+                console.error(`❌ 第 ${attempt} 次連線失敗:`, error.message);
+                
+                // 提供詳細的錯誤診斷
+                this.diagnoseError(error, smtpConfig);
+                
+                // 最後一次重試失敗
+                if (attempt === maxRetries) {
+                    console.error('💀 所有重試都失敗，郵件服務初始化失敗');
+                    return false;
+                }
+                
+                // 等待後重試
+                const retryDelay = attempt * 2000; // 遞增延遲: 2s, 4s
+                console.log(`⏳ ${retryDelay/1000} 秒後重試...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
+            }
+        }
+        
+        return false;
+    }
+
+    // 取得 SMTP 配置
+    getSMTPConfig() {
+        const smtpHost = process.env.SMTP_HOST;
+        const smtpPort = process.env.SMTP_PORT || 587;
+        const smtpUser = process.env.SMTP_USER;
+        const smtpPass = process.env.SMTP_PASS;
+        const emailFrom = process.env.EMAIL_FROM || process.env.SMTP_USER;
+
+        // 檢查必要配置
+        if (!smtpHost) {
+            console.error('❌ 缺少 SMTP_HOST 環境變數');
+            this.showConfigurationHelp();
+            return null;
+        }
+
+        if (!smtpUser || !smtpPass) {
+            // 檢查是否為匿名 SMTP（公司內部）
+            if (smtpHost.includes('jih-sun.com.tw') && smtpPort == 25) {
+                console.log('🏢 偵測到公司內部 SMTP，使用匿名認證模式');
+                return {
+                    host: smtpHost,
+                    port: smtpPort,
+                    user: '',
+                    pass: '',
+                    from: emailFrom,
+                    requiresAuth: false
+                };
+            } else {
+                console.error('❌ 缺少 SMTP 認證資訊 (SMTP_USER/SMTP_PASS)');
+                this.showConfigurationHelp();
+                return null;
+            }
+        }
+
+        return {
+            host: smtpHost,
+            port: smtpPort,
+            user: smtpUser,
+            pass: smtpPass,
+            from: emailFrom,
+            requiresAuth: true
+        };
+    }
+
+    // 錯誤診斷
+    diagnoseError(error, config) {
+        const errorCode = error.code || error.errno;
+        const errorMessage = error.message || '';
+
+        console.log('🔍 錯誤診斷:');
+        console.log(`   錯誤代碼: ${errorCode}`);
+        console.log(`   錯誤訊息: ${errorMessage}`);
+        console.log(`   SMTP 主機: ${config.host}:${config.port}`);
+
+        if (errorCode === 'EAUTH') {
+            console.log('💡 認證失敗 - 可能原因:');
+            console.log('   - Gmail 應用程式密碼錯誤或過期');
+            console.log('   - 帳號未啟用兩步驟驗證');
+            console.log('   - 使用一般密碼而非應用程式密碼');
+        } else if (errorCode === 'ECONNREFUSED') {
+            console.log('💡 連線被拒絕 - 可能原因:');
+            console.log('   - SMTP 主機或連接埠錯誤');
+            console.log('   - 防火牆阻擋連線');
+            console.log('   - SMTP 服務未啟動');
+        } else if (errorCode === 'ETIMEDOUT' || errorMessage.includes('timeout')) {
+            console.log('💡 連線超時 - 可能原因:');
+            console.log('   - 網路連線不穩定');
+            console.log('   - SMTP 伺服器回應緩慢');
+            console.log('   - 雲端環境無法存取內部網路');
+            if (config.host.includes('jih-sun.com.tw')) {
+                console.log('   ⚠️ 公司內部 SMTP 無法從雲端環境存取');
+                console.log('   💡 建議: 在生產環境使用 Gmail SMTP');
+            }
+        } else if (errorCode === 'ENOTFOUND') {
+            console.log('💡 DNS 解析失敗 - 可能原因:');
+            console.log('   - SMTP 主機名稱錯誤');
+            console.log('   - DNS 伺服器無法解析主機名稱');
+        }
+    }
+
+    // 顯示配置說明
+    showConfigurationHelp() {
+        console.log('💡 SMTP 配置說明:');
+        console.log('');
+        console.log('📧 Gmail SMTP (建議用於生產環境):');
+        console.log('   SMTP_HOST=smtp.gmail.com');
+        console.log('   SMTP_PORT=587');
+        console.log('   SMTP_USER=your-email@gmail.com');
+        console.log('   SMTP_PASS=your-16-digit-app-password');
+        console.log('   EMAIL_FROM=your-email@gmail.com');
+        console.log('');
+        console.log('🏢 公司內部 SMTP (僅限本地環境):');
+        console.log('   SMTP_HOST=ex2016.jih-sun.com.tw');
+        console.log('   SMTP_PORT=25');
+        console.log('   SMTP_USER=匿名驗證不用輸入');
+        console.log('   SMTP_PASS=匿名驗證不用輸入');
+        console.log('   EMAIL_FROM=your-name@inftfinance.com.tw');
     }
 
     // 發送郵件
