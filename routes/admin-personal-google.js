@@ -1814,4 +1814,456 @@ router.post('/token-monitor/weekly-report', authenticateToken, async (req, res) 
     }
 });
 
+// SMTP 診斷端點
+router.get('/diagnose-smtp', authenticateToken, async (req, res) => {
+    try {
+        console.log('🔍 開始 SMTP 診斷檢查...');
+        
+        const diagnosis = {
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            environment: process.env.NODE_ENV || 'unknown',
+            platform: process.platform,
+            nodeVersion: process.version,
+            renderRegion: process.env.RENDER_REGION || 'unknown',
+            tests: [],
+            recommendations: []
+        };
+
+        // 1. 環境變數檢查
+        const envCheck = {
+            name: '環境變數檢查',
+            status: 'checking',
+            details: {}
+        };
+
+        const requiredEnvVars = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM'];
+        let envIssues = 0;
+
+        requiredEnvVars.forEach(varName => {
+            const value = process.env[varName];
+            if (!value) {
+                envCheck.details[varName] = '❌ 未設定';
+                envIssues++;
+            } else if (varName === 'SMTP_PASS') {
+                envCheck.details[varName] = `✅ 已設定 (${value.length} 字元)`;
+            } else {
+                envCheck.details[varName] = `✅ ${value}`;
+            }
+        });
+
+        envCheck.status = envIssues === 0 ? 'success' : 'error';
+        envCheck.summary = `${requiredEnvVars.length - envIssues}/${requiredEnvVars.length} 環境變數已設定`;
+        diagnosis.tests.push(envCheck);
+
+        // 2. SMTP 配置驗證
+        const smtpConfigCheck = {
+            name: 'SMTP 配置驗證',
+            status: 'checking',
+            details: {}
+        };
+
+        const smtpHost = process.env.SMTP_HOST;
+        const smtpPort = process.env.SMTP_PORT || '587';
+        const smtpUser = process.env.SMTP_USER;
+
+        if (smtpHost === 'smtp.gmail.com') {
+            smtpConfigCheck.details.service = '✅ Gmail SMTP';
+            
+            if (smtpPort !== '587' && smtpPort !== '465') {
+                smtpConfigCheck.details.port = `⚠️ 連接埠 ${smtpPort} (建議 587 或 465)`;
+            } else {
+                smtpConfigCheck.details.port = `✅ 連接埠 ${smtpPort}`;
+            }
+
+            if (smtpUser && smtpUser.includes('@gmail.com')) {
+                smtpConfigCheck.details.user = '✅ Gmail 地址格式正確';
+            } else {
+                smtpConfigCheck.details.user = '⚠️ SMTP_USER 應為 Gmail 地址';
+            }
+
+            const smtpPass = process.env.SMTP_PASS;
+            if (smtpPass) {
+                if (smtpPass.length === 16 || (smtpPass.includes(' ') && smtpPass.replace(/\s/g, '').length === 16)) {
+                    smtpConfigCheck.details.password = '✅ 應用程式密碼格式正確';
+                } else {
+                    smtpConfigCheck.details.password = `⚠️ 應用程式密碼長度異常 (${smtpPass.length} 字元)`;
+                }
+            }
+        } else if (smtpHost && smtpHost.includes('jih-sun.com.tw')) {
+            smtpConfigCheck.details.service = '🏢 公司內部 SMTP';
+            smtpConfigCheck.details.warning = '⚠️ 雲端環境可能無法連接公司內部 SMTP';
+        } else {
+            smtpConfigCheck.details.service = `❓ 未知 SMTP 服務: ${smtpHost}`;
+        }
+
+        smtpConfigCheck.status = 'info';
+        diagnosis.tests.push(smtpConfigCheck);
+
+        // 3. 網路連線測試
+        const networkCheck = await performNetworkTests(smtpHost, smtpPort);
+        diagnosis.tests.push(networkCheck);
+
+        // 4. nodemailer 測試
+        const nodemailerCheck = await performNodemailerTest();
+        diagnosis.tests.push(nodemailerCheck);
+
+        // 5. 生成建議
+        diagnosis.recommendations = generateRecommendations(diagnosis.tests);
+
+        res.json({
+            success: true,
+            diagnosis: diagnosis
+        });
+
+    } catch (error) {
+        console.error('SMTP 診斷錯誤:', error);
+        res.status(500).json({
+            success: false,
+            error: 'SMTP 診斷失敗',
+            details: error.message
+        });
+    }
+});
+
+// 網路連線測試函數
+async function performNetworkTests(host, port) {
+    const networkCheck = {
+        name: '網路連線測試',
+        status: 'checking',
+        details: {}
+    };
+
+    if (!host) {
+        networkCheck.status = 'error';
+        networkCheck.details.error = '❌ SMTP_HOST 未設定';
+        return networkCheck;
+    }
+
+    try {
+        // DNS 解析測試
+        const dns = require('dns').promises;
+        const startTime = Date.now();
+        
+        try {
+            const addresses = await dns.lookup(host);
+            const dnsTime = Date.now() - startTime;
+            networkCheck.details.dns = `✅ DNS 解析成功 (${addresses.address}) - ${dnsTime}ms`;
+        } catch (dnsError) {
+            networkCheck.details.dns = `❌ DNS 解析失敗: ${dnsError.message}`;
+            networkCheck.status = 'error';
+            return networkCheck;
+        }
+
+        // TCP 連線測試
+        const net = require('net');
+        const tcpTestPromise = new Promise((resolve, reject) => {
+            const socket = new net.Socket();
+            const timeout = setTimeout(() => {
+                socket.destroy();
+                reject(new Error('TCP 連線超時 (10秒)'));
+            }, 10000);
+
+            socket.connect(parseInt(port), host, () => {
+                clearTimeout(timeout);
+                socket.end();
+                resolve('TCP 連線成功');
+            });
+
+            socket.on('error', (err) => {
+                clearTimeout(timeout);
+                reject(err);
+            });
+        });
+
+        try {
+            const tcpStartTime = Date.now();
+            await tcpTestPromise;
+            const tcpTime = Date.now() - tcpStartTime;
+            networkCheck.details.tcp = `✅ TCP 連線成功 ${host}:${port} - ${tcpTime}ms`;
+        } catch (tcpError) {
+            networkCheck.details.tcp = `❌ TCP 連線失敗: ${tcpError.message}`;
+            networkCheck.status = 'error';
+        }
+
+        // TLS 握手測試 (如果是 587 或 465 連接埠)
+        if (port === '587' || port === '465') {
+            try {
+                const tls = require('tls');
+                const tlsTestPromise = new Promise((resolve, reject) => {
+                    const tlsSocket = tls.connect({
+                        host: host,
+                        port: parseInt(port),
+                        rejectUnauthorized: false
+                    }, () => {
+                        tlsSocket.end();
+                        resolve('TLS 握手成功');
+                    });
+
+                    tlsSocket.on('error', reject);
+                    setTimeout(() => {
+                        tlsSocket.destroy();
+                        reject(new Error('TLS 握手超時'));
+                    }, 10000);
+                });
+
+                const tlsStartTime = Date.now();
+                await tlsTestPromise;
+                const tlsTime = Date.now() - tlsStartTime;
+                networkCheck.details.tls = `✅ TLS 握手成功 - ${tlsTime}ms`;
+            } catch (tlsError) {
+                networkCheck.details.tls = `⚠️ TLS 握手失敗: ${tlsError.message}`;
+            }
+        }
+
+        if (networkCheck.status !== 'error') {
+            networkCheck.status = 'success';
+        }
+
+    } catch (error) {
+        networkCheck.status = 'error';
+        networkCheck.details.error = `❌ 網路測試失敗: ${error.message}`;
+    }
+
+    return networkCheck;
+}
+
+// nodemailer 測試函數
+async function performNodemailerTest() {
+    const nodemailerCheck = {
+        name: 'nodemailer 初始化測試',
+        status: 'checking',
+        details: {}
+    };
+
+    try {
+        // 檢查 nodemailer 版本
+        const nodemailer = require('nodemailer');
+        const packageJson = require('../package.json');
+        nodemailerCheck.details.version = `✅ nodemailer ${packageJson.dependencies.nodemailer || 'unknown'}`;
+
+        // 嘗試初始化郵件服務
+        const emailServiceInitResult = await emailService.initialize();
+        
+        if (emailServiceInitResult) {
+            nodemailerCheck.details.initialization = '✅ 郵件服務初始化成功';
+            nodemailerCheck.status = 'success';
+        } else {
+            nodemailerCheck.details.initialization = '❌ 郵件服務初始化失敗';
+            nodemailerCheck.status = 'error';
+        }
+
+    } catch (error) {
+        nodemailerCheck.status = 'error';
+        nodemailerCheck.details.error = `❌ nodemailer 測試失敗: ${error.message}`;
+    }
+
+    return nodemailerCheck;
+}
+
+// 生成建議函數
+function generateRecommendations(tests) {
+    const recommendations = [];
+
+    // 檢查環境變數問題
+    const envTest = tests.find(t => t.name === '環境變數檢查');
+    if (envTest && envTest.status === 'error') {
+        recommendations.push({
+            type: 'critical',
+            title: '設定缺失的環境變數',
+            description: '在 Render Dashboard → Environment 頁面設定缺失的 SMTP 環境變數',
+            action: '確認 SMTP_HOST, SMTP_USER, SMTP_PASS 等變數已正確設定'
+        });
+    }
+
+    // 檢查網路連線問題
+    const networkTest = tests.find(t => t.name === '網路連線測試');
+    if (networkTest && networkTest.status === 'error') {
+        recommendations.push({
+            type: 'critical',
+            title: '網路連線問題',
+            description: 'Render 無法連接到 SMTP 伺服器',
+            action: '考慮使用 SendGrid、Mailgun 等雲端友善的 SMTP 服務'
+        });
+    }
+
+    // 檢查 Gmail 特定問題
+    const smtpHost = process.env.SMTP_HOST;
+    if (smtpHost === 'smtp.gmail.com' && networkTest && networkTest.details.tcp && networkTest.details.tcp.includes('❌')) {
+        recommendations.push({
+            type: 'warning',
+            title: 'Gmail SMTP 連線問題',
+            description: 'Gmail SMTP 可能對某些雲端 IP 有限制',
+            action: '檢查 Gmail 帳戶安全設定，或考慮使用 OAuth2 認證'
+        });
+    }
+
+    // 檢查公司內部 SMTP
+    if (smtpHost && smtpHost.includes('jih-sun.com.tw')) {
+        recommendations.push({
+            type: 'warning',
+            title: '公司內部 SMTP 無法從雲端存取',
+            description: 'Render 雲端環境無法連接到公司內部網路',
+            action: '在生產環境使用 Gmail SMTP 或其他雲端 SMTP 服務'
+        });
+    }
+
+    // 如果沒有嚴重問題，提供一般性建議
+    if (recommendations.length === 0) {
+        recommendations.push({
+            type: 'info',
+            title: '配置看起來正常',
+            description: '所有檢查項目都通過，但仍有連線問題',
+            action: '嘗試重新部署應用程式，或檢查 Render 平台狀態'
+        });
+    }
+
+    return recommendations;
+}
+
+// SMTP 服務狀態端點
+router.get('/smtp-status', authenticateToken, async (req, res) => {
+    try {
+        const status = emailService.getServiceStatus();
+        
+        res.json({
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            status: status
+        });
+    } catch (error) {
+        console.error('獲取 SMTP 狀態失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// SMTP 提供者測試端點
+router.post('/test-smtp-providers', authenticateToken, async (req, res) => {
+    try {
+        console.log('🧪 開始測試所有 SMTP 提供者...');
+        const results = await emailService.testAllProviders();
+        
+        res.json({
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            data: {
+                results: results,
+                summary: {
+                    total: results.length,
+                    successful: results.filter(r => r.success).length,
+                    failed: results.filter(r => !r.success).length
+                }
+            }
+        });
+    } catch (error) {
+        console.error('SMTP 提供者測試失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// SMTP 提供者切換端點
+router.post('/switch-smtp-provider', authenticateToken, async (req, res) => {
+    try {
+        const { providerName } = req.body;
+        
+        if (!providerName) {
+            return res.status(400).json({
+                success: false,
+                error: '需要指定提供者名稱'
+            });
+        }
+
+        console.log(`🔧 嘗試強制切換到指定提供者: ${providerName}`);
+        const success = await emailService.forceSwitch(providerName);
+        
+        if (success) {
+            res.json({
+                success: true,
+                message: `已成功切換到 ${providerName}`,
+                currentProvider: emailService.getServiceStatus().currentProvider,
+                timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: `切換到 ${providerName} 失敗`
+            });
+        }
+    } catch (error) {
+        console.error('SMTP 提供者切換失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 重置失敗提供者端點
+router.post('/reset-failed-providers', authenticateToken, async (req, res) => {
+    try {
+        console.log('🔄 重置失敗的 SMTP 提供者...');
+        const resetResult = emailService.resetFailedProviders();
+        
+        res.json({
+            success: true,
+            message: resetResult ? '已重置失敗的提供者' : '沒有失敗的提供者需要重置',
+            serviceStatus: emailService.getServiceStatus(),
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('重置失敗提供者失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 啟動 SMTP 健康檢查端點
+router.post('/start-smtp-health-check', authenticateToken, async (req, res) => {
+    try {
+        const { intervalMinutes = 30 } = req.body;
+        
+        console.log(`🏥 啟動 SMTP 健康檢查，間隔 ${intervalMinutes} 分鐘`);
+        emailService.startHealthCheck(intervalMinutes);
+        
+        res.json({
+            success: true,
+            message: `SMTP 健康檢查已啟動，間隔 ${intervalMinutes} 分鐘`,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('啟動 SMTP 健康檢查失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 停止 SMTP 健康檢查端點
+router.post('/stop-smtp-health-check', authenticateToken, async (req, res) => {
+    try {
+        console.log('🏥 停止 SMTP 健康檢查');
+        emailService.stopHealthCheck();
+        
+        res.json({
+            success: true,
+            message: 'SMTP 健康檢查已停止',
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    } catch (error) {
+        console.error('停止 SMTP 健康檢查失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 module.exports = router;
