@@ -7,81 +7,162 @@ class EmailService {
     constructor() {
         this.transporter = null;
         this.initialized = false;
+        this.currentProvider = null;
+        this.availableProviders = [];
+        this.failedProviders = new Set();
     }
 
     // 初始化郵件服務
     async initialize() {
         console.log('🔧 初始化郵件服務...');
         
-        // 取得 SMTP 配置
-        const smtpConfig = this.getSMTPConfig();
-        if (!smtpConfig) {
+        // 檢測所有可用的 SMTP 提供者
+        this.availableProviders = this.detectSMTPProviders();
+        
+        if (this.availableProviders.length === 0) {
+            console.error('❌ 沒有可用的 SMTP 提供者');
+            this.showConfigurationHelp();
             return false;
         }
 
-        // 嘗試建立連線，最多重試 3 次
-        const maxRetries = 3;
+        console.log(`🔍 發現 ${this.availableProviders.length} 個 SMTP 提供者:`, 
+                   this.availableProviders.map(p => p.name).join(', '));
+
+        // 嘗試連接到可用的提供者
+        for (const provider of this.availableProviders) {
+            if (this.failedProviders.has(provider.name)) {
+                console.log(`⏭️ 跳過之前失敗的提供者: ${provider.name}`);
+                continue;
+            }
+
+            console.log(`🔄 嘗試連接 ${provider.name}...`);
+            
+            if (await this.tryConnectProvider(provider)) {
+                this.currentProvider = provider;
+                this.initialized = true;
+                console.log(`✅ 郵件服務初始化成功 (${provider.name})`);
+                console.log(`📧 寄件者: ${provider.from}`);
+                return true;
+            } else {
+                this.failedProviders.add(provider.name);
+                console.log(`❌ ${provider.name} 連接失敗，嘗試下一個提供者...`);
+            }
+        }
+
+        console.error('💀 所有 SMTP 提供者都連接失敗');
+        return false;
+    }
+
+    // 檢測可用的 SMTP 提供者
+    detectSMTPProviders() {
+        const providers = [];
+
+        // 1. Gmail SMTP
+        if (process.env.SMTP_HOST === 'smtp.gmail.com' && 
+            process.env.SMTP_USER && process.env.SMTP_PASS) {
+            providers.push({
+                name: 'Gmail SMTP',
+                priority: 1,
+                host: 'smtp.gmail.com',
+                port: process.env.SMTP_PORT || 587,
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS,
+                from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+                requiresAuth: true,
+                type: 'gmail'
+            });
+        }
+
+        // 2. SendGrid SMTP 
+        if (process.env.SENDGRID_API_KEY) {
+            providers.push({
+                name: 'SendGrid SMTP',
+                priority: 2,
+                host: 'smtp.sendgrid.net',
+                port: 587,
+                user: 'apikey',
+                pass: process.env.SENDGRID_API_KEY,
+                from: process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_FROM || process.env.SMTP_USER,
+                requiresAuth: true,
+                type: 'sendgrid'
+            });
+        }
+
+        // 3. 自定義 SMTP（非 Gmail）
+        if (process.env.SMTP_HOST && 
+            process.env.SMTP_HOST !== 'smtp.gmail.com' && 
+            process.env.SMTP_USER && process.env.SMTP_PASS) {
+            providers.push({
+                name: 'Custom SMTP',
+                priority: 3,
+                host: process.env.SMTP_HOST,
+                port: process.env.SMTP_PORT || 587,
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS,
+                from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+                requiresAuth: true,
+                type: 'custom'
+            });
+        }
+
+        // 4. 公司內部 SMTP（匿名認證）
+        if (process.env.SMTP_HOST && 
+            process.env.SMTP_HOST.includes('jih-sun.com.tw')) {
+            providers.push({
+                name: 'Company Internal SMTP',
+                priority: 4,
+                host: process.env.SMTP_HOST,
+                port: process.env.SMTP_PORT || 25,
+                user: '',
+                pass: '',
+                from: process.env.EMAIL_FROM || 'system@inftfinance.com.tw',
+                requiresAuth: false,
+                type: 'internal'
+            });
+        }
+
+        // 按優先級排序（數字越小優先級越高）
+        return providers.sort((a, b) => a.priority - b.priority);
+    }
+
+    // 嘗試連接指定的提供者
+    async tryConnectProvider(provider) {
+        const maxRetries = 2; // 每個提供者重試 2 次
+        
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                console.log(`🔄 嘗試連線到 SMTP 伺服器 (第 ${attempt}/${maxRetries} 次): ${smtpConfig.host}:${smtpConfig.port}`);
+                console.log(`🔄 嘗試連線到 ${provider.name} (第 ${attempt}/${maxRetries} 次): ${provider.host}:${provider.port}`);
                 
                 // 建立 SMTP 傳輸器配置
-                const transportConfig = {
-                    host: smtpConfig.host,
-                    port: parseInt(smtpConfig.port),
-                    secure: smtpConfig.port == 465, // true for 465, false for other ports
-                    tls: {
-                        rejectUnauthorized: false // 接受自簽憑證
-                    },
-                    // 連線超時設定
-                    connectionTimeout: 15000, // 15 秒連線超時
-                    greetingTimeout: 10000,   // 10 秒問候超時
-                    socketTimeout: 30000,     // 30 秒 socket 超時
-                    // 連線池設定
-                    pool: true,
-                    maxConnections: 5,
-                    maxMessages: 100,
-                    // 調試模式 (開發環境)
-                    debug: process.env.NODE_ENV === 'development'
-                };
-
-                // 只有需要認證時才加入 auth 設定
-                if (smtpConfig.requiresAuth && smtpConfig.user && smtpConfig.pass) {
-                    transportConfig.auth = {
-                        user: smtpConfig.user,
-                        pass: smtpConfig.pass
-                    };
-                }
-
+                const transportConfig = this.createTransportConfig(provider);
+                
                 this.transporter = nodemailer.createTransport(transportConfig);
 
                 // 驗證連線，設定超時
                 const verifyPromise = this.transporter.verify();
                 const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('SMTP 驗證超時')), 20000);
+                    setTimeout(() => reject(new Error('SMTP 驗證超時')), 15000);
                 });
                 
                 await Promise.race([verifyPromise, timeoutPromise]);
                 
-                this.initialized = true;
-                console.log(`✅ 郵件服務初始化成功 (${smtpConfig.host}:${smtpConfig.port})`);
-                console.log(`📧 寄件者: ${smtpConfig.from}`);
+                console.log(`✅ ${provider.name} 連接成功`);
                 return true;
 
             } catch (error) {
-                console.error(`❌ 第 ${attempt} 次連線失敗:`, error.message);
+                console.error(`❌ ${provider.name} 第 ${attempt} 次連線失敗:`, error.message);
                 
                 // 提供詳細的錯誤診斷
-                this.diagnoseError(error, smtpConfig);
+                this.diagnoseError(error, provider);
                 
                 // 最後一次重試失敗
                 if (attempt === maxRetries) {
-                    console.error('💀 所有重試都失敗，郵件服務初始化失敗');
+                    console.error(`💀 ${provider.name} 所有重試都失敗`);
                     return false;
                 }
                 
                 // 等待後重試
-                const retryDelay = attempt * 2000; // 遞增延遲: 2s, 4s
+                const retryDelay = attempt * 1000; // 1s, 2s
                 console.log(`⏳ ${retryDelay/1000} 秒後重試...`);
                 await new Promise(resolve => setTimeout(resolve, retryDelay));
             }
@@ -90,7 +171,116 @@ class EmailService {
         return false;
     }
 
-    // 取得 SMTP 配置
+    // 創建傳輸器配置
+    createTransportConfig(provider) {
+        const transportConfig = {
+            host: provider.host,
+            port: parseInt(provider.port),
+            secure: provider.port == 465, // true for 465, false for other ports
+            // 連線超時設定
+            connectionTimeout: 15000, // 15 秒連線超時
+            greetingTimeout: 10000,   // 10 秒問候超時
+            socketTimeout: 30000,     // 30 秒 socket 超時
+            // 連線池設定
+            pool: true,
+            maxConnections: 5,
+            maxMessages: 100,
+            // 調試模式 (開發環境)
+            debug: process.env.NODE_ENV === 'development'
+        };
+
+        // 根據提供者類型設定特定配置
+        if (provider.type === 'gmail') {
+            console.log('🔧 應用 Gmail SMTP 特定設定...');
+            
+            // Gmail 專用 TLS 設定（更寬鬆，適合雲端環境）
+            transportConfig.tls = {
+                rejectUnauthorized: false,
+                // 強制使用 TLS 1.2 以上
+                minVersion: 'TLSv1.2',
+                // 允許更多的加密套件
+                ciphers: 'HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA',
+                // 雲端環境優化
+                secureProtocol: 'TLS_method',
+                // 忽略憑證驗證問題（雲端環境常見）
+                checkServerIdentity: false
+            };
+
+            // Gmail 連線優化
+            transportConfig.requireTLS = true;
+            transportConfig.secure = provider.port == 465;
+            
+            // 如果是 587 埠，啟用 STARTTLS
+            if (provider.port == 587) {
+                transportConfig.secure = false;
+                transportConfig.requireTLS = true;
+                transportConfig.tls.servername = 'smtp.gmail.com';
+            }
+        } else if (provider.type === 'sendgrid') {
+            console.log('🔧 應用 SendGrid SMTP 特定設定...');
+            
+            // SendGrid 專用設定（雲端友善）
+            transportConfig.tls = {
+                rejectUnauthorized: false,
+                // SendGrid 支援較新的 TLS
+                minVersion: 'TLSv1.2',
+                secureProtocol: 'TLS_method'
+            };
+            
+            transportConfig.secure = false; // SendGrid 使用 STARTTLS
+            transportConfig.requireTLS = true;
+        } else {
+            // 其他 SMTP 服務的 TLS 設定
+            transportConfig.tls = {
+                rejectUnauthorized: false // 接受自簽憑證
+            };
+        }
+
+        // 只有需要認證時才加入 auth 設定
+        if (provider.requiresAuth && provider.user && provider.pass) {
+            transportConfig.auth = {
+                user: provider.user,
+                pass: provider.pass
+            };
+        }
+
+        return transportConfig;
+    }
+
+    // 故障切換到下一個可用的提供者
+    async switchToNextProvider() {
+        console.log('🔄 正在嘗試故障切換到下一個提供者...');
+        
+        // 標記目前提供者為失敗
+        if (this.currentProvider) {
+            this.failedProviders.add(this.currentProvider.name);
+            console.log(`❌ 標記 ${this.currentProvider.name} 為失敗`);
+        }
+
+        // 尋找下一個可用的提供者
+        for (const provider of this.availableProviders) {
+            if (this.failedProviders.has(provider.name)) {
+                continue;
+            }
+
+            console.log(`🔄 嘗試切換到 ${provider.name}...`);
+            
+            if (await this.tryConnectProvider(provider)) {
+                this.currentProvider = provider;
+                this.initialized = true;
+                console.log(`✅ 故障切換成功，現在使用 ${provider.name}`);
+                return true;
+            } else {
+                this.failedProviders.add(provider.name);
+            }
+        }
+
+        console.error('💀 所有提供者都失敗，故障切換失敗');
+        this.initialized = false;
+        return false;
+    }
+
+    // 取得 SMTP 配置（已棄用，現在使用 detectSMTPProviders）
     getSMTPConfig() {
         const smtpHost = process.env.SMTP_HOST;
         const smtpPort = process.env.SMTP_PORT || 587;
@@ -143,81 +333,208 @@ class EmailService {
         console.log(`   錯誤代碼: ${errorCode}`);
         console.log(`   錯誤訊息: ${errorMessage}`);
         console.log(`   SMTP 主機: ${config.host}:${config.port}`);
+        console.log(`   環境: ${process.env.NODE_ENV || 'unknown'}`);
 
         if (errorCode === 'EAUTH') {
             console.log('💡 認證失敗 - 可能原因:');
-            console.log('   - Gmail 應用程式密碼錯誤或過期');
-            console.log('   - 帳號未啟用兩步驟驗證');
-            console.log('   - 使用一般密碼而非應用程式密碼');
+            if (config.host === 'smtp.gmail.com') {
+                console.log('   🔐 Gmail SMTP 認證問題:');
+                console.log('   - 應用程式密碼錯誤或過期');
+                console.log('   - 帳號未啟用兩步驟驗證');
+                console.log('   - 使用一般密碼而非應用程式密碼');
+                console.log('   - Gmail 帳戶被暫時鎖定或限制');
+                console.log('   💊 解決方案:');
+                console.log('     1. 重新生成 Gmail 應用程式密碼');
+                console.log('     2. 確認兩步驟驗證已啟用');
+                console.log('     3. 檢查 Gmail 安全性設定');
+            } else {
+                console.log('   - 用戶名稱或密碼錯誤');
+                console.log('   - SMTP 伺服器不支援當前認證方式');
+            }
         } else if (errorCode === 'ECONNREFUSED') {
             console.log('💡 連線被拒絕 - 可能原因:');
             console.log('   - SMTP 主機或連接埠錯誤');
             console.log('   - 防火牆阻擋連線');
             console.log('   - SMTP 服務未啟動');
+            if (config.host === 'smtp.gmail.com') {
+                console.log('   🌐 Render 平台可能的問題:');
+                console.log('   - Render 封鎖了 Gmail SMTP 連接埠');
+                console.log('   - IP 被 Gmail 暫時封鎖');
+                console.log('   💊 建議使用 SendGrid 或其他雲端 SMTP');
+            }
         } else if (errorCode === 'ETIMEDOUT' || errorMessage.includes('timeout')) {
             console.log('💡 連線超時 - 可能原因:');
             console.log('   - 網路連線不穩定');
             console.log('   - SMTP 伺服器回應緩慢');
-            console.log('   - 雲端環境無法存取內部網路');
+            console.log('   - 雲端環境網路限制');
+            
             if (config.host.includes('jih-sun.com.tw')) {
                 console.log('   ⚠️ 公司內部 SMTP 無法從雲端環境存取');
                 console.log('   💡 建議: 在生產環境使用 Gmail SMTP');
+            } else if (config.host === 'smtp.gmail.com') {
+                console.log('   🌐 Gmail SMTP 連線超時:');
+                console.log('   - Render 到 Gmail 的網路路徑不穩定');
+                console.log('   - Gmail 對特定 IP 範圍有限制');
+                console.log('   - TLS 握手失敗');
+                console.log('   💊 解決方案:');
+                console.log('     1. 重新部署應用程式（可能獲得新 IP）');
+                console.log('     2. 使用 SendGrid 等替代 SMTP 服務');
+                console.log('     3. 檢查 Gmail 帳戶活動記錄');
             }
         } else if (errorCode === 'ENOTFOUND') {
             console.log('💡 DNS 解析失敗 - 可能原因:');
             console.log('   - SMTP 主機名稱錯誤');
             console.log('   - DNS 伺服器無法解析主機名稱');
+            console.log('   - 網路連線問題');
+        } else if (errorCode === 'ESOCKET' || errorMessage.includes('socket')) {
+            console.log('💡 Socket 連線錯誤 - 可能原因:');
+            console.log('   - 網路連線中斷');
+            console.log('   - 防火牆或代理服務器問題');
+            console.log('   - SMTP 伺服器主動關閉連線');
+        } else if (errorMessage.includes('TLS') || errorMessage.includes('SSL')) {
+            console.log('💡 TLS/SSL 錯誤 - 可能原因:');
+            console.log('   - TLS 版本不相容');
+            console.log('   - 憑證驗證失敗');
+            console.log('   - 加密套件不符合');
+            if (config.host === 'smtp.gmail.com') {
+                console.log('   💊 Gmail TLS 解決方案:');
+                console.log('     1. 已套用寬鬆 TLS 設定');
+                console.log('     2. 強制使用 TLS 1.2+');
+                console.log('     3. 忽略憑證驗證問題');
+            }
+        } else {
+            console.log('💡 其他錯誤:');
+            console.log('   - 檢查網路連線');
+            console.log('   - 驗證 SMTP 設定');
+            console.log('   - 查看 SMTP 伺服器文件');
+            if (config.host === 'smtp.gmail.com') {
+                console.log('   💊 Gmail 一般性建議:');
+                console.log('     1. 重新生成應用程式密碼');
+                console.log('     2. 檢查 Gmail 帳戶狀態');
+                console.log('     3. 考慮使用 OAuth2 認證');
+            }
+        }
+        
+        // 環境特定建議
+        if (process.env.NODE_ENV === 'production') {
+            console.log('🚀 生產環境特別建議:');
+            console.log('   - 考慮使用專業的郵件服務 (SendGrid, Mailgun)');
+            console.log('   - 設定郵件發送監控和警報');
+            console.log('   - 準備備援郵件服務');
         }
     }
 
     // 顯示配置說明
     showConfigurationHelp() {
-        console.log('💡 SMTP 配置說明:');
+        console.log('💡 多重 SMTP 服務配置說明:');
         console.log('');
-        console.log('📧 Gmail SMTP (建議用於生產環境):');
+        console.log('🎯 推薦配置（優先級由高到低）:');
+        console.log('');
+        console.log('1️⃣ Gmail SMTP (基本選項):');
         console.log('   SMTP_HOST=smtp.gmail.com');
         console.log('   SMTP_PORT=587');
         console.log('   SMTP_USER=your-email@gmail.com');
         console.log('   SMTP_PASS=your-16-digit-app-password');
         console.log('   EMAIL_FROM=your-email@gmail.com');
         console.log('');
+        console.log('2️⃣ SendGrid SMTP (雲端環境推薦):');
+        console.log('   SENDGRID_API_KEY=your-sendgrid-api-key');
+        console.log('   SENDGRID_FROM_EMAIL=your-verified-sender@yourdomain.com');
+        console.log('   ✅ 更穩定的雲端郵件服務');
+        console.log('   ✅ 專為雲端平台優化');
+        console.log('   ✅ 更好的送達率和監控');
+        console.log('');
+        console.log('3️⃣ 自定義 SMTP:');
+        console.log('   SMTP_HOST=your-smtp-host.com');
+        console.log('   SMTP_PORT=587');
+        console.log('   SMTP_USER=your-smtp-username');
+        console.log('   SMTP_PASS=your-smtp-password');
+        console.log('   EMAIL_FROM=your-email@yourdomain.com');
+        console.log('');
         console.log('🏢 公司內部 SMTP (僅限本地環境):');
         console.log('   SMTP_HOST=ex2016.jih-sun.com.tw');
         console.log('   SMTP_PORT=25');
-        console.log('   SMTP_USER=匿名驗證不用輸入');
-        console.log('   SMTP_PASS=匿名驗證不用輸入');
-        console.log('   EMAIL_FROM=your-name@inftfinance.com.tw');
+        console.log('   ⚠️ 雲端環境無法使用內部 SMTP');
+        console.log('');
+        console.log('💡 故障切換機制:');
+        console.log('   系統會自動嘗試所有可用的 SMTP 服務');
+        console.log('   如果主要服務失敗，會切換到備援服務');
+        console.log('   建議同時配置 Gmail 和 SendGrid 以確保可靠性');
     }
 
-    // 發送郵件
+    // 發送郵件（支援自動故障切換）
     async sendEmail(to, subject, htmlContent, attachments = []) {
-        if (!this.initialized || !this.transporter) {
-            throw new Error('郵件服務未初始化或配置不完整');
-        }
-
-        const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_USER;
+        const maxRetries = 3;
         
-        const mailOptions = {
-            from: `"員工運動系統" <${fromEmail}>`,
-            to: to,
-            subject: subject,
-            html: htmlContent,
-            attachments: attachments
-        };
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            // 檢查服務是否已初始化
+            if (!this.initialized || !this.transporter) {
+                console.log(`⚠️ 郵件服務未初始化，嘗試重新初始化... (第 ${attempt}/${maxRetries} 次)`);
+                
+                const initSuccess = await this.initialize();
+                if (!initSuccess) {
+                    if (attempt === maxRetries) {
+                        throw new Error('郵件服務初始化失敗，無法發送郵件');
+                    }
+                    continue;
+                }
+            }
 
-        try {
-            const info = await this.transporter.sendMail(mailOptions);
-            console.log(`✅ 郵件發送成功: ${info.messageId}`);
-            console.log(`📧 收件人: ${to}`);
-            console.log(`📄 主旨: ${subject}`);
-            return {
-                success: true,
-                messageId: info.messageId,
-                response: info.response
+            // 準備郵件內容
+            const fromEmail = this.currentProvider?.from || process.env.EMAIL_FROM || process.env.SMTP_USER;
+            
+            const mailOptions = {
+                from: `"員工運動系統" <${fromEmail}>`,
+                to: to,
+                subject: subject,
+                html: htmlContent,
+                attachments: attachments
             };
-        } catch (error) {
-            console.error('❌ 郵件發送失敗:', error);
-            throw error;
+
+            try {
+                console.log(`📧 嘗試發送郵件 (第 ${attempt}/${maxRetries} 次): ${this.currentProvider?.name}`);
+                console.log(`📧 收件人: ${to}`);
+                console.log(`📄 主旨: ${subject}`);
+                
+                const info = await this.transporter.sendMail(mailOptions);
+                
+                console.log(`✅ 郵件發送成功: ${info.messageId}`);
+                console.log(`🚀 使用提供者: ${this.currentProvider?.name}`);
+                
+                return {
+                    success: true,
+                    messageId: info.messageId,
+                    response: info.response,
+                    provider: this.currentProvider?.name
+                };
+
+            } catch (error) {
+                console.error(`❌ 郵件發送失敗 (${this.currentProvider?.name}):`, error.message);
+                
+                // 診斷錯誤
+                if (this.currentProvider) {
+                    this.diagnoseError(error, this.currentProvider);
+                }
+
+                // 如果不是最後一次嘗試，嘗試切換到下一個提供者
+                if (attempt < maxRetries) {
+                    console.log(`🔄 嘗試切換到下一個 SMTP 提供者...`);
+                    
+                    const switchSuccess = await this.switchToNextProvider();
+                    if (!switchSuccess) {
+                        console.error('💀 無法切換到其他 SMTP 提供者');
+                        throw new Error(`所有 SMTP 提供者都失敗。最後錯誤: ${error.message}`);
+                    }
+                    
+                    console.log(`✅ 已切換到 ${this.currentProvider?.name}，將重新嘗試發送`);
+                    
+                    // 等待一秒後重試
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    // 最後一次嘗試失敗
+                    throw new Error(`郵件發送失敗，已嘗試 ${maxRetries} 次。最後錯誤: ${error.message}`);
+                }
+            }
         }
     }
 
@@ -603,6 +920,157 @@ ${downloadResults.join('\n')}
         XLSX.utils.book_append_sheet(workbook, worksheet, '簽到記錄');
         
         return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    }
+
+    // 重置失敗的提供者（定期恢復機制）
+    resetFailedProviders() {
+        console.log('🔄 重置失敗的 SMTP 提供者，允許重新嘗試連接');
+        const failedCount = this.failedProviders.size;
+        this.failedProviders.clear();
+        
+        if (failedCount > 0) {
+            console.log(`✅ 已重置 ${failedCount} 個失敗的提供者`);
+            return true;
+        }
+        
+        return false;
+    }
+
+    // 獲取服務狀態報告
+    getServiceStatus() {
+        const status = {
+            initialized: this.initialized,
+            currentProvider: this.currentProvider?.name || 'none',
+            availableProviders: this.availableProviders.length,
+            failedProviders: Array.from(this.failedProviders),
+            providerDetails: this.availableProviders.map(p => ({
+                name: p.name,
+                type: p.type,
+                priority: p.priority,
+                host: p.host,
+                port: p.port,
+                status: this.failedProviders.has(p.name) ? 'failed' : 
+                       (p.name === this.currentProvider?.name ? 'active' : 'available')
+            }))
+        };
+        
+        return status;
+    }
+
+    // 強制切換到指定的提供者
+    async forceSwitch(providerName) {
+        console.log(`🔧 嘗試強制切換到指定提供者: ${providerName}`);
+        
+        const targetProvider = this.availableProviders.find(p => p.name === providerName);
+        if (!targetProvider) {
+            throw new Error(`找不到指定的提供者: ${providerName}`);
+        }
+
+        // 暫時從失敗清單中移除
+        this.failedProviders.delete(providerName);
+        
+        const success = await this.tryConnectProvider(targetProvider);
+        if (success) {
+            this.currentProvider = targetProvider;
+            this.initialized = true;
+            console.log(`✅ 強制切換成功，現在使用 ${providerName}`);
+            return true;
+        } else {
+            this.failedProviders.add(providerName);
+            console.error(`❌ 強制切換失敗: ${providerName}`);
+            return false;
+        }
+    }
+
+    // 測試所有可用的提供者
+    async testAllProviders() {
+        console.log('🧪 開始測試所有 SMTP 提供者...');
+        
+        const results = [];
+        const currentProvider = this.currentProvider;
+        
+        for (const provider of this.availableProviders) {
+            console.log(`🔍 測試 ${provider.name}...`);
+            
+            const startTime = Date.now();
+            const success = await this.tryConnectProvider(provider);
+            const duration = Date.now() - startTime;
+            
+            results.push({
+                name: provider.name,
+                type: provider.type,
+                host: provider.host,
+                port: provider.port,
+                success: success,
+                duration: duration,
+                error: success ? null : `連接失敗 (${duration}ms)`
+            });
+            
+            console.log(`${success ? '✅' : '❌'} ${provider.name}: ${duration}ms`);
+        }
+        
+        // 恢復原始提供者
+        if (currentProvider) {
+            await this.tryConnectProvider(currentProvider);
+            this.currentProvider = currentProvider;
+        }
+        
+        console.log('🧪 提供者測試完成');
+        return results;
+    }
+
+    // 啟動定期健康檢查
+    startHealthCheck(intervalMinutes = 30) {
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+        }
+        
+        console.log(`🏥 啟動 SMTP 服務健康檢查，間隔 ${intervalMinutes} 分鐘`);
+        
+        this.healthCheckInterval = setInterval(async () => {
+            try {
+                console.log('🏥 執行定期健康檢查...');
+                
+                // 檢查當前提供者
+                if (this.currentProvider && this.transporter) {
+                    try {
+                        await this.transporter.verify();
+                        console.log(`✅ 當前提供者 ${this.currentProvider.name} 狀態正常`);
+                    } catch (error) {
+                        console.error(`❌ 當前提供者 ${this.currentProvider.name} 健康檢查失敗:`, error.message);
+                        
+                        // 嘗試切換到其他提供者
+                        const switchSuccess = await this.switchToNextProvider();
+                        if (switchSuccess) {
+                            console.log(`✅ 健康檢查：已自動切換到 ${this.currentProvider.name}`);
+                        } else {
+                            console.error('💀 健康檢查：無法切換到其他提供者');
+                        }
+                    }
+                }
+                
+                // 每兩小時重置失敗的提供者
+                const now = Date.now();
+                if (!this.lastResetTime || (now - this.lastResetTime) > 2 * 60 * 60 * 1000) {
+                    this.resetFailedProviders();
+                    this.lastResetTime = now;
+                }
+                
+            } catch (error) {
+                console.error('❌ 健康檢查執行失敗:', error.message);
+            }
+        }, intervalMinutes * 60 * 1000);
+        
+        return this.healthCheckInterval;
+    }
+
+    // 停止健康檢查
+    stopHealthCheck() {
+        if (this.healthCheckInterval) {
+            clearInterval(this.healthCheckInterval);
+            this.healthCheckInterval = null;
+            console.log('🏥 SMTP 健康檢查已停止');
+        }
     }
 
     // 檢查服務狀態
