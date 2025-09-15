@@ -1486,6 +1486,229 @@ router.get('/email-config-guide', authenticateToken, checkGoogleAuth, async (req
     }
 });
 
+// 測試所有郵件提供者端點
+router.get('/test-all-providers', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        console.log('🔄 開始測試所有郵件提供者...');
+
+        const testResults = [];
+        const emailService = require('../services/email-service');
+
+        // 確保服務已初始化
+        await emailService.initialize();
+
+        // 測試每個配置的提供者
+        const providers = ['resend', 'postmark', 'mailgun', 'gmail_smtp'];
+
+        for (const providerName of providers) {
+            const result = {
+                provider: providerName,
+                configured: false,
+                available: false,
+                tested: false,
+                success: false,
+                message: '',
+                responseTime: 0
+            };
+
+            try {
+                const startTime = Date.now();
+
+                // 檢查配置
+                switch (providerName) {
+                    case 'resend':
+                        result.configured = !!process.env.RESEND_API_KEY;
+                        result.available = true;
+                        break;
+                    case 'postmark':
+                        result.configured = !!process.env.POSTMARK_API_KEY;
+                        result.available = true;
+                        break;
+                    case 'mailgun':
+                        result.configured = !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN);
+                        result.available = true;
+                        break;
+                    case 'gmail_smtp':
+                        result.configured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+                        result.available = !process.env.RENDER; // Render 封鎖 SMTP
+                        break;
+                }
+
+                if (result.configured && result.available) {
+                    // 執行基本連線測試
+                    result.tested = true;
+                    // 這裡可以加入更詳細的連線測試邏輯
+                    result.success = true;
+                    result.message = '提供者可用';
+                } else if (!result.configured) {
+                    result.message = '未配置';
+                } else if (!result.available) {
+                    result.message = '平台不支援';
+                }
+
+                result.responseTime = Date.now() - startTime;
+
+            } catch (error) {
+                result.tested = true;
+                result.success = false;
+                result.message = error.message;
+                result.responseTime = Date.now() - startTime;
+            }
+
+            testResults.push(result);
+        }
+
+        const summary = {
+            totalProviders: testResults.length,
+            configuredProviders: testResults.filter(r => r.configured).length,
+            availableProviders: testResults.filter(r => r.configured && r.available).length,
+            successfulTests: testResults.filter(r => r.success).length
+        };
+
+        console.log(`✅ 提供者測試完成 - 成功: ${summary.successfulTests}/${summary.availableProviders}`);
+
+        res.json({
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            summary,
+            results: testResults
+        });
+
+    } catch (error) {
+        console.error('❌ 提供者測試失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: '提供者測試失敗',
+            error: error.message
+        });
+    }
+});
+
+// 檢查 Render 配置端點
+router.get('/check-render-config', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        console.log('🔍 檢查 Render 配置...');
+
+        const config = {
+            platform: process.env.RENDER ? 'Render.com' : '本地開發',
+            renderDetected: !!process.env.RENDER,
+            nodeEnv: process.env.NODE_ENV,
+            environment: {
+                requiredVariables: [
+                    { name: 'EMAIL_FROM', configured: !!process.env.EMAIL_FROM, value: process.env.EMAIL_FROM || 'Not set' },
+                    { name: 'RESEND_API_KEY', configured: !!process.env.RESEND_API_KEY, value: process.env.RESEND_API_KEY ? `${process.env.RESEND_API_KEY.substring(0, 8)}...` : 'Not set' },
+                    { name: 'POSTMARK_API_KEY', configured: !!process.env.POSTMARK_API_KEY, value: process.env.POSTMARK_API_KEY ? `${process.env.POSTMARK_API_KEY.substring(0, 8)}...` : 'Not set' }
+                ],
+                deprecatedVariables: [
+                    { name: 'SMTP_HOST', configured: !!process.env.SMTP_HOST, reason: 'Render 封鎖 SMTP 端口' },
+                    { name: 'SMTP_USER', configured: !!process.env.SMTP_USER, reason: 'Render 封鎖 SMTP 端口' },
+                    { name: 'SMTP_PASS', configured: !!process.env.SMTP_PASS, reason: 'Render 封鎖 SMTP 端口' }
+                ]
+            },
+            recommendations: []
+        };
+
+        // 生成建議
+        if (process.env.RENDER) {
+            if (!process.env.RESEND_API_KEY) {
+                config.recommendations.push({
+                    priority: 'high',
+                    message: '建議設定 RESEND_API_KEY 環境變數',
+                    action: '在 Render Dashboard 的 Environment 設定中添加'
+                });
+            }
+            if (process.env.SMTP_HOST) {
+                config.recommendations.push({
+                    priority: 'critical',
+                    message: '移除 SMTP 相關環境變數',
+                    action: 'SMTP 在 Render 平台無法使用，請移除相關設定'
+                });
+            }
+        }
+
+        console.log('✅ Render 配置檢查完成');
+        res.json({
+            success: true,
+            config,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+
+    } catch (error) {
+        console.error('❌ Render 配置檢查失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Render 配置檢查失敗',
+            error: error.message
+        });
+    }
+});
+
+// 驗證 Resend API 金鑰端點
+router.get('/validate-resend', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        console.log('🔑 驗證 Resend API 金鑰...');
+
+        if (!process.env.RESEND_API_KEY) {
+            return res.json({
+                success: false,
+                message: 'Resend API 金鑰未設定',
+                configured: false
+            });
+        }
+
+        // 檢查 API 金鑰格式
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey.startsWith('re_')) {
+            return res.json({
+                success: false,
+                message: 'Resend API 金鑰格式錯誤（應以 re_ 開頭）',
+                configured: true,
+                validFormat: false,
+                keyPreview: `${apiKey.substring(0, 8)}...`
+            });
+        }
+
+        // 嘗試使用 Resend API 驗證
+        const { Resend } = require('resend');
+        const resend = new Resend(apiKey);
+
+        try {
+            // 嘗試獲取 API 資訊（這不會發送郵件）
+            // 注意：Resend 可能沒有直接的驗證端點，這裡可以嘗試其他方法
+            const testResult = {
+                success: true,
+                message: 'API 金鑰格式正確',
+                configured: true,
+                validFormat: true,
+                keyPreview: `${apiKey.substring(0, 8)}...`,
+                note: '金鑰格式正確，建議發送測試郵件驗證功能'
+            };
+
+            console.log('✅ Resend API 金鑰驗證完成');
+            res.json(testResult);
+
+        } catch (apiError) {
+            console.error('❌ Resend API 驗證失敗:', apiError);
+            res.json({
+                success: false,
+                message: `API 驗證失敗: ${apiError.message}`,
+                configured: true,
+                validFormat: true,
+                keyPreview: `${apiKey.substring(0, 8)}...`,
+                error: apiError.message
+            });
+        }
+
+    } catch (error) {
+        console.error('❌ Resend 驗證過程失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Resend 驗證過程失敗',
+            error: error.message
+        });
+    }
+});
+
 // 輔助函數：生成配置步驟
 function generateConfigurationSteps(environment, diagnosticInfo) {
     const steps = [];

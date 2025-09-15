@@ -245,8 +245,21 @@
         let logCounter = 0;
 
         // 頁面載入完成後初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            refreshStatus();
+        document.addEventListener('DOMContentLoaded', async function() {
+            addLog('[初始化] 郵件測試系統已就緒，正在檢查認證狀態...', 'info');
+
+            // 檢查認證狀態
+            try {
+                const token = await getAuthToken();
+                if (token) {
+                    addLog('✅ 認證驗證成功，開始載入服務狀態...', 'success');
+                    refreshStatus();
+                } else {
+                    addLog('❌ 認證驗證失敗，請先登入管理員系統', 'error');
+                }
+            } catch (error) {
+                addLog(`❌ 初始化過程發生錯誤: ${error.message}`, 'error');
+            }
 
             // 綁定表單提交事件
             document.getElementById('emailTestForm').addEventListener('submit', function(e) {
@@ -284,6 +297,47 @@
             logCounter++;
         }
 
+        // 檢查登入狀態並獲取 Token
+        async function getAuthToken() {
+            try {
+                // 檢查 localStorage 中是否有 token
+                let token = localStorage.getItem('adminToken');
+                if (token) {
+                    // 驗證 token 是否仍然有效
+                    const verifyResponse = await fetch('/api/admin/verify', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (verifyResponse.ok) {
+                        return token;
+                    }
+                }
+
+                // 如果沒有有效 token，嘗試使用管理員頁面的認證
+                const adminLoginResponse = await fetch('/api/admin/verify', {
+                    credentials: 'include' // 包含 cookies
+                });
+
+                if (adminLoginResponse.ok) {
+                    const adminData = await adminLoginResponse.json();
+                    if (adminData.token) {
+                        localStorage.setItem('adminToken', adminData.token);
+                        return adminData.token;
+                    }
+                }
+
+                // 如果都失敗，重新導向到登入頁面
+                addLog('❌ 需要管理員登入，正在重新導向...', 'error');
+                setTimeout(() => {
+                    window.location.href = '/admin';
+                }, 2000);
+                return null;
+
+            } catch (error) {
+                addLog(`❌ 認證檢查失敗: ${error.message}`, 'error');
+                return null;
+            }
+        }
+
         // 刷新服務狀態
         async function refreshStatus() {
             const refreshIcon = document.getElementById('refreshIcon');
@@ -294,25 +348,50 @@
             addLog('正在檢查郵件服務狀態...', 'info');
 
             try {
-                const response = await fetch('/api/admin/email-status');
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
+                const response = await fetch('/api/admin/email-status', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
                 const data = await response.json();
 
                 if (response.ok) {
                     displayServiceStatus(data);
                     statusCard.className = 'card status-card success';
-                    addLog('服務狀態檢查完成', 'success');
+                    addLog('✅ 服務狀態檢查完成', 'success');
                 } else {
-                    throw new Error(data.error || '狀態檢查失敗');
+                    if (response.status === 401) {
+                        // Token 過期，清除並重新導向
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || '狀態檢查失敗');
                 }
             } catch (error) {
                 serviceStatus.innerHTML = `
                     <div class="alert alert-danger">
                         <i class="fas fa-exclamation-triangle"></i>
                         無法獲取服務狀態: ${error.message}
+                        ${error.message.includes('認證') ? '<br><small>將在 3 秒後重新導向到管理員登入頁面...</small>' : ''}
                     </div>
                 `;
                 statusCard.className = 'card status-card error';
-                addLog(`服務狀態檢查失敗: ${error.message}`, 'error');
+                addLog(`❌ 服務狀態檢查失敗: ${error.message}`, 'error');
+
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
             } finally {
                 refreshIcon.classList.remove('fa-spin');
             }
@@ -391,35 +470,55 @@
             sendBtn.disabled = true;
             sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 發送中...';
 
-            addLog(`開始發送測試郵件到 ${email}...`, 'info');
+            addLog(`📧 開始發送測試郵件到 ${email}...`, 'info');
 
             try {
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
                 const response = await fetch('/api/admin/test-email', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
                     },
+                    credentials: 'include',
                     body: JSON.stringify({
-                        to: email,
-                        type: type,
-                        customSubject: subject
+                        email: email,
+                        testType: type,
+                        subject: subject
                     })
                 });
 
                 const data = await response.json();
 
                 if (response.ok) {
-                    addLog(`✅ 郵件發送成功！訊息 ID: ${data.messageId}`, 'success');
-                    addLog(`📧 使用提供者: ${data.provider}`, 'info');
-
-                    if (data.details) {
-                        addLog(`📋 詳細資訊: ${JSON.stringify(data.details, null, 2)}`, 'info');
+                    if (data.success && data.data) {
+                        addLog(`✅ 郵件發送成功！`, 'success');
+                        addLog(`📧 收件人: ${data.data.recipient}`, 'info');
+                        addLog(`📨 訊息 ID: ${data.data.messageId || 'N/A'}`, 'info');
+                        addLog(`🔗 使用提供者: ${data.data.provider || 'N/A'}`, 'info');
+                        addLog(`📅 發送時間: ${new Date(data.data.sentAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`, 'info');
+                    } else {
+                        addLog(`⚠️ 郵件發送回應異常: ${data.message || '未知狀態'}`, 'warning');
                     }
                 } else {
-                    throw new Error(data.error || '郵件發送失敗');
+                    if (response.status === 401) {
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || '郵件發送失敗');
                 }
             } catch (error) {
                 addLog(`❌ 郵件發送失敗: ${error.message}`, 'error');
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
             } finally {
                 sendBtn.disabled = false;
                 sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i> 發送測試郵件';
@@ -428,7 +527,7 @@
 
         // 執行健康檢查
         async function runHealthCheck() {
-            addLog('開始執行完整健康檢查...', 'info');
+            addLog('🔍 開始執行完整健康檢查...', 'info');
 
             try {
                 const response = await fetch('/api/email/health-check');
@@ -436,9 +535,45 @@
 
                 if (response.ok) {
                     addLog('✅ 健康檢查完成', 'success');
-                    addLog(`📊 檢查結果: ${JSON.stringify(data, null, 2)}`, 'info');
+
+                    // 顯示環境資訊
+                    if (data.environment) {
+                        addLog(`🌍 平台環境: ${data.environment.platform}`, 'info');
+                        addLog(`⚙️ 執行環境: ${data.environment.nodeEnv}`, 'info');
+                    }
+
+                    // 顯示健康狀態
+                    if (data.health) {
+                        const healthIcon = data.health.status === 'healthy' ? '🟢' :
+                                         data.health.status === 'warning' ? '🟡' : '🔴';
+                        addLog(`${healthIcon} 系統健康度: ${data.health.status} (${data.health.score}/100)`,
+                               data.health.status === 'healthy' ? 'success' : 'warning');
+                        addLog(`💬 ${data.health.message}`, 'info');
+                    }
+
+                    // 顯示提供者狀態
+                    if (data.providers) {
+                        addLog('📋 郵件提供者狀態:', 'info');
+                        Object.entries(data.providers).forEach(([name, provider]) => {
+                            const status = provider.status === 'ready' ? '✅' :
+                                         provider.status === 'not_configured' ? '⚠️' :
+                                         provider.status === 'blocked_by_platform' ? '🚫' : '❌';
+                            addLog(`  ${status} ${provider.name}: ${provider.status}`,
+                                   provider.status === 'ready' ? 'success' : 'info');
+                        });
+                    }
+
+                    // 顯示建議
+                    if (data.recommendations && data.recommendations.length > 0) {
+                        addLog('💡 系統建議:', 'info');
+                        data.recommendations.forEach(rec => {
+                            const priority = rec.priority === 'high' ? '🔥' : '💡';
+                            addLog(`  ${priority} ${rec.message}`, 'info');
+                        });
+                    }
+
                 } else {
-                    throw new Error(data.error || '健康檢查失敗');
+                    throw new Error(data.message || '健康檢查失敗');
                 }
             } catch (error) {
                 addLog(`❌ 健康檢查失敗: ${error.message}`, 'error');
@@ -447,10 +582,23 @@
 
         // 測試所有提供者
         async function testAllProviders() {
-            addLog('開始測試所有郵件提供者...', 'info');
+            addLog('🔄 開始測試所有郵件提供者...', 'info');
 
             try {
-                const response = await fetch('/api/admin/test-all-providers');
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
+                const response = await fetch('/api/admin/test-all-providers', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
                 const data = await response.json();
 
                 if (response.ok) {
@@ -459,71 +607,140 @@
                     if (data.results && Array.isArray(data.results)) {
                         data.results.forEach(result => {
                             const status = result.success ? '✅' : '❌';
-                            addLog(`${status} ${result.name}: ${result.duration}ms`, result.success ? 'success' : 'error');
-
-                            if (result.error) {
-                                addLog(`   錯誤: ${result.error}`, 'error');
-                            }
+                            addLog(`${status} ${result.provider}: ${result.message} (${result.responseTime}ms)`,
+                                   result.success ? 'success' : 'error');
                         });
+
+                        // 顯示總結
+                        const summary = data.summary;
+                        addLog(`📊 測試總結: ${summary.successfulTests}/${summary.availableProviders} 個提供者可用`, 'info');
                     }
                 } else {
-                    throw new Error(data.error || '提供者測試失敗');
+                    if (response.status === 401) {
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || '提供者測試失敗');
                 }
             } catch (error) {
                 addLog(`❌ 提供者測試失敗: ${error.message}`, 'error');
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
             }
         }
 
         // 檢查 Render 配置
         async function checkRenderConfig() {
-            addLog('檢查 Render 環境變數配置...', 'info');
+            addLog('🔍 檢查 Render 環境變數配置...', 'info');
 
             try {
-                const response = await fetch('/api/admin/check-render-config');
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
+                const response = await fetch('/api/admin/check-render-config', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
                 const data = await response.json();
 
                 if (response.ok) {
                     addLog('✅ Render 配置檢查完成', 'success');
 
-                    if (data.missing && data.missing.length > 0) {
-                        addLog(`⚠️ 缺失的環境變數: ${data.missing.join(', ')}`, 'warning');
-                    }
+                    if (data.config) {
+                        addLog(`📍 檢測到平台: ${data.config.platform}`, 'info');
 
-                    if (data.recommendations && data.recommendations.length > 0) {
-                        data.recommendations.forEach(rec => {
-                            addLog(`💡 建議: ${rec}`, 'info');
-                        });
+                        // 顯示必需變數狀態
+                        if (data.config.environment.requiredVariables) {
+                            data.config.environment.requiredVariables.forEach(v => {
+                                const status = v.configured ? '✅' : '❌';
+                                addLog(`${status} ${v.name}: ${v.configured ? '已配置' : '未配置'}`, v.configured ? 'success' : 'error');
+                            });
+                        }
+
+                        // 顯示建議
+                        if (data.config.recommendations && data.config.recommendations.length > 0) {
+                            data.config.recommendations.forEach(rec => {
+                                const priority = rec.priority === 'critical' ? '🚨' : rec.priority === 'high' ? '⚠️' : '💡';
+                                addLog(`${priority} ${rec.message}`, rec.priority === 'critical' ? 'error' : 'info');
+                            });
+                        }
                     }
                 } else {
-                    throw new Error(data.error || 'Render 配置檢查失敗');
+                    if (response.status === 401) {
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || 'Render 配置檢查失敗');
                 }
             } catch (error) {
                 addLog(`❌ Render 配置檢查失敗: ${error.message}`, 'error');
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
             }
         }
 
         // 驗證 Resend API
         async function validateResendAPI() {
-            addLog('驗證 Resend API 金鑰...', 'info');
+            addLog('🔑 驗證 Resend API 金鑰...', 'info');
 
             try {
-                const response = await fetch('/api/admin/validate-resend');
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
+                const response = await fetch('/api/admin/validate-resend', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
                 const data = await response.json();
 
                 if (response.ok) {
-                    if (data.valid) {
-                        addLog('✅ Resend API 金鑰有效', 'success');
-                        if (data.domainStatus) {
-                            addLog(`📧 網域狀態: ${data.domainStatus}`, 'info');
+                    if (data.success) {
+                        addLog('✅ Resend API 金鑰驗證成功', 'success');
+                        addLog(`📋 金鑰預覽: ${data.keyPreview}`, 'info');
+                        if (data.note) {
+                            addLog(`💡 ${data.note}`, 'info');
                         }
                     } else {
-                        addLog('❌ Resend API 金鑰無效或未配置', 'error');
+                        addLog('❌ Resend API 金鑰驗證失敗', 'error');
+                        addLog(`   ${data.message}`, 'error');
+                        if (data.keyPreview) {
+                            addLog(`📋 金鑰預覽: ${data.keyPreview}`, 'info');
+                        }
                     }
                 } else {
-                    throw new Error(data.error || 'API 驗證失敗');
+                    if (response.status === 401) {
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || 'Resend API 驗證失敗');
                 }
             } catch (error) {
                 addLog(`❌ Resend API 驗證失敗: ${error.message}`, 'error');
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
             }
         }
 
