@@ -1709,6 +1709,149 @@ router.get('/validate-resend', authenticateToken, checkGoogleAuth, async (req, r
     }
 });
 
+// Resend API 診斷端點
+router.get('/resend-diagnostics', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        console.log('🔍 執行 Resend API 完整診斷...');
+
+        const emailService = require('../services/email-service');
+        const diagnostics = await emailService.getResendApiDiagnostics();
+
+        console.log('✅ Resend 診斷完成');
+        res.json({
+            success: true,
+            diagnostics,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+
+    } catch (error) {
+        console.error('❌ Resend 診斷失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Resend 診斷失敗',
+            error: error.message
+        });
+    }
+});
+
+// 郵件投遞測試端點
+router.post('/test-email-delivery', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        const { recipientEmail, testType = 'basic' } = req.body;
+
+        if (!recipientEmail) {
+            return res.status(400).json({
+                success: false,
+                message: '請提供收件人郵箱地址'
+            });
+        }
+
+        console.log(`📧 開始郵件投遞測試 - 收件人: ${recipientEmail}, 類型: ${testType}`);
+
+        const emailService = require('../services/email-service');
+
+        // 確保郵件服務已初始化
+        await emailService.initialize();
+
+        // 生成測試郵件內容
+        const testSubject = `[投遞測試] 員工運動簽到系統 - ${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`;
+
+        let testContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>郵件投遞測試</title>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .header { background: #007bff; color: white; padding: 20px; text-align: center; }
+                .content { padding: 20px; }
+                .success-box { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .info-box { background: #e2e3e5; border: 1px solid #d6d8db; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .footer { background: #f8f9fa; padding: 15px; text-align: center; font-size: 12px; color: #666; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🎉 郵件投遞測試成功！</h1>
+            </div>
+            <div class="content">
+                <div class="success-box">
+                    <h2>✅ 測試結果：成功</h2>
+                    <p>恭喜！您已成功收到來自員工運動簽到系統的測試郵件。這表示：</p>
+                    <ul>
+                        <li>📧 Resend API 服務正常運作</li>
+                        <li>🔑 API 金鑰配置正確</li>
+                        <li>🌐 發件人地址已通過驗證</li>
+                        <li>📬 郵件投遞管道暢通</li>
+                    </ul>
+                </div>
+
+                <div class="info-box">
+                    <h3>📋 測試詳情</h3>
+                    <ul>
+                        <li><strong>測試類型：</strong>${testType}</li>
+                        <li><strong>發送時間：</strong>${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })} (UTC+8)</li>
+                        <li><strong>服務平台：</strong>${process.env.RENDER ? 'Render.com 生產環境' : '本地開發環境'}</li>
+                        <li><strong>郵件提供者：</strong>Resend API</li>
+                        <li><strong>收件人：</strong>${recipientEmail}</li>
+                    </ul>
+                </div>
+
+                ${testType === 'comprehensive' ? `
+                <div class="info-box">
+                    <h3>🔧 系統狀態檢查</h3>
+                    <p>✅ 所有關鍵系統組件正常運作：</p>
+                    <ul>
+                        <li>郵件服務初始化：正常</li>
+                        <li>API 連線狀態：良好</li>
+                        <li>認證機制：運作正常</li>
+                        <li>HTML 郵件渲染：支援</li>
+                    </ul>
+                </div>
+                ` : ''}
+            </div>
+            <div class="footer">
+                <p>這是一封由系統自動產生的測試郵件</p>
+                <p>員工運動簽到系統 © ${new Date().getFullYear()}</p>
+            </div>
+        </body>
+        </html>
+        `;
+
+        // 發送測試郵件
+        const result = await emailService.sendEmail(recipientEmail, testSubject, testContent);
+
+        if (result.success) {
+            console.log(`✅ 投遞測試成功 - MessageID: ${result.messageId}`);
+
+            res.json({
+                success: true,
+                message: '郵件投遞測試成功',
+                data: {
+                    messageId: result.messageId,
+                    provider: result.provider,
+                    testType: testType,
+                    recipientEmail: recipientEmail,
+                    sentAt: new Date().toISOString(),
+                    recommendation: '請檢查您的收件匣（包括垃圾郵件資料夾）以確認郵件送達'
+                }
+            });
+        } else {
+            throw new Error(result.message || '郵件發送失敗');
+        }
+
+    } catch (error) {
+        console.error('❌ 郵件投遞測試失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: `郵件投遞測試失敗: ${error.message}`,
+            error: error.message,
+            recommendation: '請檢查 API 金鑰配置和網路連線狀態'
+        });
+    }
+});
+
 // 輔助函數：生成配置步驟
 function generateConfigurationSteps(environment, diagnosticInfo) {
     const steps = [];

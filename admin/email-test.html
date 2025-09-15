@@ -189,6 +189,20 @@
                                 驗證 Resend API 金鑰
                             </button>
                         </div>
+
+                        <hr class="my-3">
+
+                        <h6 class="text-success">🔧 增強診斷工具</h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-success btn-sm" onclick="runResendDiagnostics()">
+                                <i class="fas fa-stethoscope"></i>
+                                Resend 完整診斷
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="testEmailDelivery()">
+                                <i class="fas fa-paper-plane"></i>
+                                郵件投遞測試
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -748,6 +762,149 @@
         function viewServiceLogs() {
             addLog('服務日誌功能開發中...', 'info');
             // TODO: 實作服務日誌查看功能
+        }
+
+        // Resend 完整診斷
+        async function runResendDiagnostics() {
+            addLog('🔍 執行 Resend API 完整診斷...', 'info');
+
+            try {
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
+                const response = await fetch('/api/admin/resend-diagnostics', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    addLog('✅ Resend 診斷完成', 'success');
+
+                    const diagnostics = data.diagnostics;
+
+                    // 顯示環境資訊
+                    addLog(`🌍 平台環境: ${diagnostics.environment.platform}`, 'info');
+                    addLog(`⚙️ 執行模式: ${diagnostics.environment.nodeEnv}`, 'info');
+
+                    // 顯示 API 金鑰驗證結果
+                    const apiValidation = diagnostics.apiKeyValidation;
+                    if (apiValidation) {
+                        if (apiValidation.valid) {
+                            addLog(`✅ API 金鑰驗證: 有效`, 'success');
+                            addLog(`📋 金鑰預覽: ${apiValidation.keyPreview}`, 'info');
+                            if (apiValidation.message) {
+                                addLog(`💬 ${apiValidation.message}`, 'info');
+                            }
+                        } else {
+                            addLog(`❌ API 金鑰驗證: 無效`, 'error');
+                            addLog(`💬 錯誤原因: ${apiValidation.error}`, 'error');
+                            if (apiValidation.recommendation) {
+                                addLog(`💡 建議: ${apiValidation.recommendation}`, 'info');
+                            }
+                        }
+                    }
+
+                    // 顯示配置狀態
+                    const config = diagnostics.configuration;
+                    addLog(`📧 EMAIL_FROM 設定: ${config.hasEmailFrom ? '✅ 已配置' : '⚠️ 未配置'}`,
+                           config.hasEmailFrom ? 'success' : 'warning');
+
+                    // 顯示建議
+                    if (diagnostics.recommendations && diagnostics.recommendations.length > 0) {
+                        addLog('💡 系統建議:', 'info');
+                        diagnostics.recommendations.forEach(rec => {
+                            const priority = rec.priority === 'critical' ? '🚨' :
+                                           rec.priority === 'high' ? '⚠️' : '💡';
+                            addLog(`  ${priority} ${rec.issue}: ${rec.action}`,
+                                   rec.priority === 'critical' ? 'error' : 'info');
+                        });
+                    }
+
+                } else {
+                    if (response.status === 401) {
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || 'Resend 診斷失敗');
+                }
+            } catch (error) {
+                addLog(`❌ Resend 診斷失敗: ${error.message}`, 'error');
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
+            }
+        }
+
+        // 郵件投遞測試
+        async function testEmailDelivery() {
+            // 提示用戶輸入收件人地址
+            const recipientEmail = prompt('🔬 郵件投遞測試\n\n請輸入收件人郵箱地址：', 'test@example.com');
+
+            if (!recipientEmail || !recipientEmail.includes('@')) {
+                addLog('❌ 請輸入有效的郵箱地址', 'error');
+                return;
+            }
+
+            addLog(`📧 開始郵件投遞測試 - 收件人: ${recipientEmail}`, 'info');
+
+            try {
+                // 獲取認證 Token
+                const token = await getAuthToken();
+                if (!token) {
+                    throw new Error('需要提供認證Token');
+                }
+
+                const response = await fetch('/api/admin/test-email-delivery', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        recipientEmail: recipientEmail,
+                        testType: 'comprehensive'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    addLog('🎉 郵件投遞測試成功！', 'success');
+
+                    if (data.data) {
+                        addLog(`📨 Message ID: ${data.data.messageId || 'N/A'}`, 'info');
+                        addLog(`🔗 使用提供者: ${data.data.provider}`, 'info');
+                        addLog(`📅 發送時間: ${new Date(data.data.sentAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`, 'info');
+                        addLog(`💡 ${data.data.recommendation}`, 'info');
+                    }
+
+                    addLog('📬 請檢查您的收件匣（包括垃圾郵件資料夾）以確認投遞狀態', 'info');
+                } else {
+                    if (response.status === 401) {
+                        localStorage.removeItem('adminToken');
+                        throw new Error('認證已過期，請重新登入');
+                    }
+                    throw new Error(data.message || '郵件投遞測試失敗');
+                }
+            } catch (error) {
+                addLog(`❌ 郵件投遞測試失敗: ${error.message}`, 'error');
+                if (error.message.includes('認證') || error.message.includes('登入')) {
+                    setTimeout(() => {
+                        window.location.href = '/admin';
+                    }, 3000);
+                }
+            }
         }
 
         // 顯示配置指南

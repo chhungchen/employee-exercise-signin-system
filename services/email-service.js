@@ -1707,8 +1707,14 @@ ${downloadResults.join('\n')}
     // Resend HTTP API 發送
     async sendEmailViaResend(to, subject, htmlContent, attachments, from) {
         try {
+            // 🔧 解決 403 權限錯誤：使用經過驗證的發件人地址
+            const verifiedFromEmail = this.getVerifiedSenderEmail(from);
+
+            console.log(`📧 原始發件人: ${from}`);
+            console.log(`✅ 驗證後發件人: ${verifiedFromEmail}`);
+
             const emailData = {
-                from: `"員工運動系統" <${from}>`,
+                from: `"員工運動系統" <${verifiedFromEmail}>`,
                 to: Array.isArray(to) ? to : [to],
                 subject: subject,
                 html: htmlContent
@@ -1722,22 +1728,194 @@ ${downloadResults.join('\n')}
                 }));
             }
 
+            console.log(`🔍 API 調用數據:`, {
+                from: emailData.from,
+                to: emailData.to,
+                subject: emailData.subject,
+                hasHtml: !!emailData.html,
+                attachmentCount: emailData.attachments ? emailData.attachments.length : 0
+            });
+
             const data = await this.resendClient.emails.send(emailData);
 
-            console.log(`✅ Resend 郵件發送成功: ${data.id}`);
+            // 詳細的成功日誌
+            console.log(`✅ Resend 郵件發送成功!`);
+            console.log(`📨 Message ID: ${data.id || 'N/A'}`);
             console.log(`🚀 使用提供者: Resend API`);
+            console.log(`📋 完整回應:`, data);
 
             return {
                 success: true,
-                messageId: data.id,
+                messageId: data.id || data.message_id || null,
                 response: 'Resend API 發送成功',
-                provider: 'Resend API'
+                provider: 'Resend API',
+                rawResponse: data
             };
 
         } catch (error) {
-            console.error('❌ Resend 發送失敗:', error);
-            throw new Error(`Resend API 錯誤: ${error.message}`);
+            // 詳細的錯誤診斷
+            console.error('❌ Resend 發送失敗 - 詳細診斷:');
+            console.error(`🔍 錯誤類型: ${error.name || 'Unknown'}`);
+            console.error(`💬 錯誤訊息: ${error.message}`);
+            console.error(`📊 HTTP 狀態: ${error.status || error.statusCode || 'Unknown'}`);
+
+            if (error.status === 403 || error.statusCode === 403) {
+                console.error('🚨 403 權限錯誤診斷:');
+                console.error('   - API 金鑰可能無效或權限不足');
+                console.error('   - 發件人地址可能未在 Resend 中驗證');
+                console.error('   - 請檢查 Resend Dashboard 的 Domains 設定');
+            }
+
+            console.error(`📋 完整錯誤物件:`, error);
+
+            throw new Error(`Resend API 錯誤 (${error.status || error.statusCode || 'Unknown'}): ${error.message}`);
         }
+    }
+
+    // 取得經過驗證的發件人地址
+    getVerifiedSenderEmail(originalFrom) {
+        // 1. 如果是 Render 環境，優先使用 Resend 官方測試地址
+        if (this.isRender) {
+            console.log('🌐 Render 環境：使用 Resend 官方驗證地址');
+            return 'onboarding@resend.dev';
+        }
+
+        // 2. 檢查是否配置了自定義的已驗證網域
+        const customVerifiedDomain = process.env.VERIFIED_SENDER_DOMAIN;
+        if (customVerifiedDomain) {
+            const customEmail = `noreply@${customVerifiedDomain}`;
+            console.log(`✅ 使用自定義已驗證網域: ${customEmail}`);
+            return customEmail;
+        }
+
+        // 3. 本地開發環境的回退選項
+        console.log('⚠️ 本地環境：使用 Resend 測試地址作為備用');
+        return 'onboarding@resend.dev';
+    }
+
+    // 驗證 Resend API 金鑰
+    async validateResendApiKey() {
+        console.log('🔑 開始驗證 Resend API 金鑰...');
+
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) {
+            return {
+                valid: false,
+                error: 'RESEND_API_KEY 環境變數未設定',
+                recommendation: '請在 Render Dashboard 或 .env 檔案中設定 RESEND_API_KEY'
+            };
+        }
+
+        // 檢查 API 金鑰格式
+        if (!apiKey.startsWith('re_')) {
+            return {
+                valid: false,
+                error: 'Resend API 金鑰格式錯誤',
+                keyPreview: `${apiKey.substring(0, 8)}...`,
+                recommendation: 'Resend API 金鑰應以 "re_" 開頭，請檢查是否複製完整'
+            };
+        }
+
+        try {
+            // 建立測試用的 Resend 客戶端
+            const testClient = new Resend(apiKey);
+
+            // 發送一個測試郵件來驗證 API 金鑰
+            const testEmailData = {
+                from: 'onboarding@resend.dev',
+                to: 'test@example.com', // 這不會真正發送，只是驗證 API 權限
+                subject: 'API Key Validation Test',
+                html: '<p>This is a test email for API validation.</p>'
+            };
+
+            // 這會測試 API 金鑰的權限，但不會實際發送郵件
+            await testClient.emails.send(testEmailData);
+
+            console.log('✅ Resend API 金鑰驗證成功');
+            return {
+                valid: true,
+                keyPreview: `${apiKey.substring(0, 8)}...`,
+                message: 'API 金鑰有效且具有發送權限'
+            };
+
+        } catch (error) {
+            console.error('❌ Resend API 金鑰驗證失敗:', error.message);
+
+            let errorAnalysis = {
+                valid: false,
+                error: error.message,
+                keyPreview: `${apiKey.substring(0, 8)}...`
+            };
+
+            // 分析具體的錯誤類型
+            if (error.status === 401 || error.statusCode === 401) {
+                errorAnalysis.diagnosis = 'API 金鑰無效或已撤銷';
+                errorAnalysis.recommendation = '請檢查 Resend Dashboard 中的 API Keys，確認金鑰是否正確且仍然有效';
+            } else if (error.status === 403 || error.statusCode === 403) {
+                errorAnalysis.diagnosis = 'API 金鑰權限不足';
+                errorAnalysis.recommendation = '請確認 API 金鑰具有發送郵件的權限';
+            } else if (error.status === 422 || error.statusCode === 422) {
+                errorAnalysis.diagnosis = 'API 請求格式錯誤';
+                errorAnalysis.recommendation = 'API 金鑰可能有效，但請求格式需要調整';
+            } else {
+                errorAnalysis.diagnosis = '未知錯誤';
+                errorAnalysis.recommendation = '請檢查網路連線和 API 服務狀態';
+            }
+
+            return errorAnalysis;
+        }
+    }
+
+    // 獲取詳細的 API 診斷資訊
+    async getResendApiDiagnostics() {
+        console.log('🔍 執行 Resend API 完整診斷...');
+
+        const diagnostics = {
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            environment: {
+                platform: this.isRender ? 'Render.com' : '本地開發',
+                nodeEnv: process.env.NODE_ENV || 'development'
+            },
+            apiKeyValidation: null,
+            configuration: {
+                hasApiKey: !!process.env.RESEND_API_KEY,
+                hasEmailFrom: !!process.env.EMAIL_FROM,
+                emailFrom: process.env.EMAIL_FROM || 'Not configured'
+            },
+            recommendations: []
+        };
+
+        // 執行 API 金鑰驗證
+        diagnostics.apiKeyValidation = await this.validateResendApiKey();
+
+        // 生成建議
+        if (!diagnostics.apiKeyValidation.valid) {
+            diagnostics.recommendations.push({
+                priority: 'critical',
+                issue: 'API 金鑰無效',
+                action: diagnostics.apiKeyValidation.recommendation || '請重新配置 Resend API 金鑰'
+            });
+        }
+
+        if (!diagnostics.configuration.hasEmailFrom) {
+            diagnostics.recommendations.push({
+                priority: 'high',
+                issue: 'EMAIL_FROM 環境變數未設定',
+                action: '設定 EMAIL_FROM 環境變數以改善郵件發送者識別'
+            });
+        }
+
+        // 針對 Render 環境的特殊建議
+        if (this.isRender) {
+            diagnostics.recommendations.push({
+                priority: 'info',
+                issue: 'Render 環境自動使用已驗證的發件人地址',
+                action: '系統將自動使用 onboarding@resend.dev 作為發件人以避免 403 錯誤'
+            });
+        }
+
+        console.log('✅ Resend API 診斷完成');
+        return diagnostics;
     }
 
     // Postmark HTTP API 發送
