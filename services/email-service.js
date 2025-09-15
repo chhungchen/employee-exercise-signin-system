@@ -1,6 +1,8 @@
 const nodemailer = require('nodemailer');
 const JSZip = require('jszip');
 const XLSX = require('xlsx');
+const { Resend } = require('resend');
+const { Client } = require('postmark');
 const personalGoogleServices = require('./personal-google-services');
 
 class EmailService {
@@ -10,6 +12,9 @@ class EmailService {
         this.currentProvider = null;
         this.availableProviders = [];
         this.failedProviders = new Set();
+        this.isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
+        this.resendClient = null;
+        this.postmarkClient = null;
     }
 
     // 初始化郵件服務
@@ -57,35 +62,137 @@ class EmailService {
     detectSMTPProviders() {
         const providers = [];
 
-        // 1. Gmail SMTP
-        if (process.env.SMTP_HOST === 'smtp.gmail.com' && 
+        console.log(`🔍 環境偵測: ${this.isRender ? 'Render 生產環境' : '本地開發環境'}`);
+        console.log(`🌐 NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+        console.log(`🚀 RENDER: ${process.env.RENDER || 'false'}`);
+
+        // 雲端環境優先使用 HTTP API 服務
+        if (this.isRender) {
+            console.log('🌐 Render 環境偵測：優先配置 HTTP API 郵件服務');
+
+            // 1. Resend HTTP API (雲端環境首選)
+            if (process.env.RESEND_API_KEY) {
+                this.resendClient = new Resend(process.env.RESEND_API_KEY);
+                providers.push({
+                    name: 'Resend API',
+                    priority: 1,
+                    type: 'resend',
+                    from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
+                    requiresAuth: false, // HTTP API 不需要 SMTP 認證
+                    isHttpApi: true
+                });
+                console.log('✅ Resend HTTP API 已配置 (優先級 1)');
+            }
+
+            // 2. Postmark HTTP API (高可靠性備援)
+            if (process.env.POSTMARK_API_KEY) {
+                this.postmarkClient = new Client(process.env.POSTMARK_API_KEY);
+                providers.push({
+                    name: 'Postmark API',
+                    priority: 2,
+                    type: 'postmark',
+                    from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
+                    requiresAuth: false,
+                    isHttpApi: true
+                });
+                console.log('✅ Postmark HTTP API 已配置 (優先級 2)');
+            }
+
+            // 3. Mailgun SMTP (SMTP 備援，雲端友善)
+            if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
+                providers.push({
+                    name: 'Mailgun SMTP',
+                    priority: 3,
+                    host: 'smtp.mailgun.org',
+                    port: 587,
+                    user: `postmaster@${process.env.MAILGUN_DOMAIN}`,
+                    pass: process.env.MAILGUN_API_KEY,
+                    from: process.env.EMAIL_FROM || `noreply@${process.env.MAILGUN_DOMAIN}`,
+                    requiresAuth: true,
+                    type: 'mailgun',
+                    isHttpApi: false
+                });
+                console.log('✅ Mailgun SMTP 已配置 (優先級 3)');
+            }
+        } else {
+            console.log('🏠 本地環境：保持 Gmail SMTP 優先順序');
+        }
+
+        // Gmail SMTP (本地環境優先，Render 環境降級)
+        if (process.env.SMTP_HOST === 'smtp.gmail.com' &&
             process.env.SMTP_USER && process.env.SMTP_PASS) {
             providers.push({
                 name: 'Gmail SMTP',
-                priority: 1,
+                priority: this.isRender ? 10 : 1, // Render 環境降低優先級
                 host: 'smtp.gmail.com',
                 port: process.env.SMTP_PORT || 587,
                 user: process.env.SMTP_USER,
                 pass: process.env.SMTP_PASS,
                 from: process.env.EMAIL_FROM || process.env.SMTP_USER,
                 requiresAuth: true,
-                type: 'gmail'
+                type: 'gmail',
+                isHttpApi: false,
+                renderCompatible: false // 標記為 Render 不相容
             });
+
+            if (this.isRender) {
+                console.log('⚠️ Gmail SMTP 在 Render 環境不可用，已降低優先級');
+            } else {
+                console.log('✅ Gmail SMTP 已配置 (本地環境優先級 1)');
+            }
         }
 
-        // 2. SendGrid SMTP 
-        if (process.env.SENDGRID_API_KEY) {
+        // Resend HTTP API (適用於所有環境)
+        if (process.env.RESEND_API_KEY) {
+            if (!this.isRender) {
+                this.resendClient = new Resend(process.env.RESEND_API_KEY);
+            }
             providers.push({
-                name: 'SendGrid SMTP',
-                priority: 2,
-                host: 'smtp.sendgrid.net',
-                port: 587,
-                user: 'apikey',
-                pass: process.env.SENDGRID_API_KEY,
-                from: process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_FROM || process.env.SMTP_USER,
-                requiresAuth: true,
-                type: 'sendgrid'
+                name: 'Resend API',
+                priority: this.isRender ? 1 : 2, // Render 環境優先級 1，本地環境優先級 2
+                type: 'resend',
+                from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
+                requiresAuth: false,
+                isHttpApi: true
             });
+            const envType = this.isRender ? 'Render 環境' : '本地環境';
+            const priority = this.isRender ? 1 : 2;
+            console.log(`✅ Resend HTTP API 已配置 (${envType}優先級 ${priority})`);
+        }
+
+        // Postmark HTTP API (適用於所有環境)
+        if (process.env.POSTMARK_API_KEY) {
+            if (!this.isRender) {
+                this.postmarkClient = new Client(process.env.POSTMARK_API_KEY);
+            }
+            providers.push({
+                name: 'Postmark API',
+                priority: this.isRender ? 2 : 3, // Render 環境優先級 2，本地環境優先級 3
+                type: 'postmark',
+                from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
+                requiresAuth: false,
+                isHttpApi: true
+            });
+            const envType = this.isRender ? 'Render 環境' : '本地環境';
+            const priority = this.isRender ? 2 : 3;
+            console.log(`✅ Postmark HTTP API 已配置 (${envType}優先級 ${priority})`);
+        }
+
+        // Mailgun SMTP (適用於所有環境)
+        if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
+            providers.push({
+                name: 'Mailgun SMTP',
+                priority: this.isRender ? 4 : 4,
+                host: 'smtp.mailgun.org',
+                port: 587,
+                user: `postmaster@${process.env.MAILGUN_DOMAIN}`,
+                pass: process.env.MAILGUN_API_KEY,
+                from: process.env.EMAIL_FROM || `noreply@${process.env.MAILGUN_DOMAIN}`,
+                requiresAuth: true,
+                type: 'mailgun',
+                isHttpApi: false
+            });
+            console.log('✅ Mailgun SMTP 已配置');
         }
 
         // 3. 自定義 SMTP（非 Gmail）
@@ -127,7 +234,19 @@ class EmailService {
 
     // 嘗試連接指定的提供者
     async tryConnectProvider(provider) {
-        const maxRetries = 3; // 增加重試次數到 3 次
+        const maxRetries = 3;
+
+        // HTTP API 服務直接返回成功（無需 SMTP 連接測試）
+        if (provider.isHttpApi) {
+            console.log(`✅ ${provider.name} HTTP API 服務已就緒`);
+            return true;
+        }
+
+        // Render 環境檢查 SMTP 相容性
+        if (this.isRender && provider.renderCompatible === false) {
+            console.log(`⚠️ ${provider.name} 在 Render 環境不相容，跳過連接測試`);
+            return false;
+        }
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
@@ -375,7 +494,7 @@ class EmailService {
                 console.log('   🌐 Render 平台可能的問題:');
                 console.log('   - Render 封鎖了 Gmail SMTP 連接埠');
                 console.log('   - IP 被 Gmail 暫時封鎖');
-                console.log('   💊 建議使用 SendGrid 或其他雲端 SMTP');
+                console.log('   💊 建議使用 Resend、Mailgun 或 Postmark API');
             }
         } else if (errorCode === 'ETIMEDOUT' || errorMessage.includes('timeout')) {
             console.log('💡 連線超時 - 可能原因:');
@@ -392,8 +511,8 @@ class EmailService {
                 console.log('   - Gmail 對特定 IP 範圍有限制');
                 console.log('   - TLS 握手失敗');
                 console.log('   💊 解決方案:');
-                console.log('     1. 重新部署應用程式（可能獲得新 IP）');
-                console.log('     2. 使用 SendGrid 等替代 SMTP 服務');
+                console.log('     1. 切換到 Resend HTTP API（推薦）');
+                console.log('     2. 使用 Mailgun 或 Postmark 服務');
                 console.log('     3. 檢查 Gmail 帳戶活動記錄');
             }
         } else if (errorCode === 'ENOTFOUND') {
@@ -452,14 +571,28 @@ class EmailService {
         console.log('   SMTP_PASS=your-16-digit-app-password');
         console.log('   EMAIL_FROM=your-email@gmail.com');
         console.log('');
-        console.log('2️⃣ SendGrid SMTP (雲端環境推薦):');
-        console.log('   SENDGRID_API_KEY=your-sendgrid-api-key');
-        console.log('   SENDGRID_FROM_EMAIL=your-verified-sender@yourdomain.com');
-        console.log('   ✅ 更穩定的雲端郵件服務');
-        console.log('   ✅ 專為雲端平台優化');
-        console.log('   ✅ 更好的送達率和監控');
+        console.log('2️⃣ Resend HTTP API (雲端環境首選):');
+        console.log('   RESEND_API_KEY=re_xxxxxxxxxxxx');
+        console.log('   EMAIL_FROM=noreply@yourdomain.com');
+        console.log('   ✅ 現代化 API 設計');
+        console.log('   ✅ 免費 3000 封/月');
+        console.log('   ✅ 卓越的開發體驗');
         console.log('');
-        console.log('3️⃣ 自定義 SMTP:');
+        console.log('3️⃣ Postmark HTTP API (高可靠性):');
+        console.log('   POSTMARK_API_KEY=your-postmark-api-key');
+        console.log('   EMAIL_FROM=noreply@yourdomain.com');
+        console.log('   ✅ 83.3% 收件匣到達率');
+        console.log('   ✅ 專為交易郵件優化');
+        console.log('   ✅ 優秀的錯誤處理');
+        console.log('');
+        console.log('4️⃣ Mailgun SMTP (備援選項):');
+        console.log('   MAILGUN_API_KEY=key-xxxxxxxxxxxx');
+        console.log('   MAILGUN_DOMAIN=mg.yourdomain.com');
+        console.log('   ✅ 免費 100 封/日');
+        console.log('   ✅ 71.4% 收件匣到達率');
+        console.log('   ✅ 成熟穩定的服務');
+        console.log('');
+        console.log('5️⃣ 自定義 SMTP:');
         console.log('   SMTP_HOST=your-smtp-host.com');
         console.log('   SMTP_PORT=587');
         console.log('   SMTP_USER=your-smtp-username');
@@ -472,9 +605,9 @@ class EmailService {
         console.log('   ⚠️ 雲端環境無法使用內部 SMTP');
         console.log('');
         console.log('💡 故障切換機制:');
-        console.log('   系統會自動嘗試所有可用的 SMTP 服務');
+        console.log('   系統會自動嘗試所有可用的郵件服務');
         console.log('   如果主要服務失敗，會切換到備援服務');
-        console.log('   建議同時配置 Gmail 和 SendGrid 以確保可靠性');
+        console.log('   建議同時配置 Resend、Postmark 和 Mailgun 以確保可靠性');
     }
 
     // 發送郵件（支援自動故障切換）
@@ -483,7 +616,7 @@ class EmailService {
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             // 檢查服務是否已初始化
-            if (!this.initialized || !this.transporter) {
+            if (!this.initialized || (!this.transporter && !this.currentProvider?.isHttpApi)) {
                 console.log(`⚠️ 郵件服務未初始化，嘗試重新初始化... (第 ${attempt}/${maxRetries} 次)`);
 
                 const initSuccess = await this.initialize();
@@ -495,8 +628,29 @@ class EmailService {
                 }
             }
 
-            // 連接預檢查機制（特別是 Gmail SMTP）
-            if (this.currentProvider?.type === 'gmail') {
+            // HTTP API 服務發送路徑
+            if (this.currentProvider?.isHttpApi) {
+                try {
+                    return await this.sendEmailViaHttpApi(to, subject, htmlContent, attachments);
+                } catch (error) {
+                    console.error(`❌ ${this.currentProvider.name} 發送失敗:`, error.message);
+
+                    // 如果不是最後一次嘗試，嘗試切換到下一個提供者
+                    if (attempt < maxRetries) {
+                        console.log(`🔄 嘗試切換到下一個郵件提供者...`);
+                        const switchSuccess = await this.switchToNextProvider();
+                        if (!switchSuccess) {
+                            throw new Error(`所有郵件提供者都失敗。最後錯誤: ${error.message}`);
+                        }
+                        continue;
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+
+            // SMTP 服務的預檢查機制
+            if (!this.currentProvider?.isHttpApi && this.currentProvider?.type === 'gmail') {
                 console.log('🔍 Gmail SMTP 連接預檢查...');
                 try {
                     const verifyTimeout = 10000; // 10 秒快速檢查
@@ -1327,6 +1481,102 @@ ${downloadResults.join('\n')}
         }
 
         return status;
+    }
+
+    // HTTP API 郵件發送方法
+    async sendEmailViaHttpApi(to, subject, htmlContent, attachments = []) {
+        const fromEmail = this.currentProvider?.from || process.env.EMAIL_FROM || 'noreply@yourdomain.com';
+
+        console.log(`📧 使用 ${this.currentProvider.name} 發送郵件`);
+        console.log(`📧 收件人: ${to}`);
+        console.log(`📄 主旨: ${subject}`);
+
+        try {
+            if (this.currentProvider.type === 'resend') {
+                return await this.sendEmailViaResend(to, subject, htmlContent, attachments, fromEmail);
+            } else if (this.currentProvider.type === 'postmark') {
+                return await this.sendEmailViaPostmark(to, subject, htmlContent, attachments, fromEmail);
+            } else {
+                throw new Error(`不支援的 HTTP API 服務類型: ${this.currentProvider.type}`);
+            }
+        } catch (error) {
+            console.error(`❌ ${this.currentProvider.name} 發送失敗:`, error.message);
+            throw error;
+        }
+    }
+
+    // Resend HTTP API 發送
+    async sendEmailViaResend(to, subject, htmlContent, attachments, from) {
+        try {
+            const emailData = {
+                from: `"員工運動系統" <${from}>`,
+                to: Array.isArray(to) ? to : [to],
+                subject: subject,
+                html: htmlContent
+            };
+
+            // 處理附件
+            if (attachments && attachments.length > 0) {
+                emailData.attachments = attachments.map(attachment => ({
+                    filename: attachment.filename,
+                    content: attachment.content
+                }));
+            }
+
+            const data = await this.resendClient.emails.send(emailData);
+
+            console.log(`✅ Resend 郵件發送成功: ${data.id}`);
+            console.log(`🚀 使用提供者: Resend API`);
+
+            return {
+                success: true,
+                messageId: data.id,
+                response: 'Resend API 發送成功',
+                provider: 'Resend API'
+            };
+
+        } catch (error) {
+            console.error('❌ Resend 發送失敗:', error);
+            throw new Error(`Resend API 錯誤: ${error.message}`);
+        }
+    }
+
+    // Postmark HTTP API 發送
+    async sendEmailViaPostmark(to, subject, htmlContent, attachments, from) {
+        try {
+            const emailData = {
+                From: from,
+                To: Array.isArray(to) ? to.join(',') : to,
+                Subject: subject,
+                HtmlBody: htmlContent,
+                MessageStream: 'outbound'
+            };
+
+            // 處理附件
+            if (attachments && attachments.length > 0) {
+                emailData.Attachments = attachments.map(attachment => ({
+                    Name: attachment.filename,
+                    Content: attachment.content.toString('base64'),
+                    ContentType: attachment.contentType || 'application/octet-stream'
+                }));
+            }
+
+            const data = await this.postmarkClient.sendEmail(emailData);
+
+            console.log(`✅ Postmark 郵件發送成功: ${data.MessageID}`);
+            console.log(`🚀 使用提供者: Postmark API`);
+
+            return {
+                success: true,
+                messageId: data.MessageID,
+                response: 'Postmark API 發送成功',
+                provider: 'Postmark API'
+            };
+
+        } catch (error) {
+            console.error('❌ Postmark 發送失敗:', error);
+            throw new Error(`Postmark API 錯誤: ${error.message}`);
+        }
     }
 }
 

@@ -39,15 +39,34 @@ CORS_ORIGIN=https://employee-exercise-signin-system.onrender.com
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
 
-# ===== 郵件服務設定（定期寄送功能所需）=====
-# 優先使用 Google OAuth2 (與其他服務一致)，SMTP 作為備用方案
-EMAIL_FROM=您的Gmail地址（需與Google OAuth2授權帳號一致）
+# ===== 郵件服務設定（Render 平台優化）=====
+# 🎯 Render 平台建議使用 HTTP API 郵件服務，避免 SMTP 端口封鎖問題
+EMAIL_FROM=noreply@yourdomain.com
 
-# 備用 SMTP 設定（當 Google OAuth2 不可用時）
-SMTP_HOST=您的SMTP伺服器地址
-SMTP_PORT=587
-SMTP_USER=您的SMTP用戶名
-SMTP_PASS=您的SMTP密碼
+# 1️⃣ Resend HTTP API（首選 - 雲端友善）
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# 註冊：https://resend.com/
+# 免費額度：3000 封/月
+# 特色：現代化 API、優秀開發體驗
+
+# 2️⃣ Postmark HTTP API（高可靠性備援）
+POSTMARK_API_KEY=your-postmark-server-token
+# 註冊：https://postmarkapp.com/
+# 特色：83.3% 收件匣到達率、交易郵件專業
+
+# 3️⃣ Mailgun SMTP（SMTP 備援選項）
+MAILGUN_API_KEY=key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MAILGUN_DOMAIN=mg.yourdomain.com
+# 註冊：https://mailgun.com/
+# 免費額度：100 封/日
+# 特色：成熟穩定、雲端相容
+
+# ⚠️ Gmail SMTP（Render 平台不支援 - 僅供本地開發）
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=您的Gmail地址
+# SMTP_PASS=您的Gmail應用程式密碼
+# 注意：Render 完全封鎖 SMTP 端口，Gmail SMTP 無法使用
 
 # ===== 其他設定 =====
 TZ=Asia/Taipei
