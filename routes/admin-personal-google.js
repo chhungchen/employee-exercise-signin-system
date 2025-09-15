@@ -1306,6 +1306,285 @@ router.post('/create-test-admin', async (req, res) => {
 });
 
 // 建立自訂管理員
+// Email testing and monitoring endpoints
+router.post('/test-email', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        const { testType, email, subject, message } = req.body;
+
+        // 驗證輸入參數
+        if (!testType || !email) {
+            return res.status(400).json({
+                success: false,
+                message: '缺少必要參數'
+            });
+        }
+
+        // 設定測試內容
+        let testSubject = subject || `[測試] 郵件服務測試 - ${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`;
+        let testMessage = message || `
+        <h2>系統郵件服務測試</h2>
+        <p>這是一封測試郵件，用於驗證郵件服務功能。</p>
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0;">
+            <strong>測試詳情：</strong><br>
+            測試類型：${testType}<br>
+            測試時間：${new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })} (UTC+8)<br>
+            測試平台：${process.env.RENDER ? 'Render.com' : '本地開發環境'}<br>
+            服務狀態：正常運作
+        </div>
+        <p style="color: #666; font-size: 12px;">本郵件由員工運動簽到系統自動發送</p>
+        `;
+
+        // 根據測試類型調整內容
+        switch (testType) {
+            case 'basic':
+                testSubject = `[基本測試] ${testSubject}`;
+                break;
+            case 'html':
+                testSubject = `[HTML測試] ${testSubject}`;
+                testMessage += `<div style="color: blue;"><strong>HTML格式測試成功</strong></div>`;
+                break;
+            case 'report':
+                testSubject = `[報告測試] ${testSubject}`;
+                testMessage += `<div style="border: 1px solid #ddd; padding: 10px;"><h3>測試報告</h3><p>系統運行正常</p></div>`;
+                break;
+            default:
+                testSubject = `[一般測試] ${testSubject}`;
+        }
+
+        // 記錄測試開始
+        console.log(`📧 開始郵件測試 - 類型: ${testType}, 收件人: ${email}`);
+
+        // 發送測試郵件
+        const result = await emailService.sendEmail(email, testSubject, testMessage);
+
+        if (result.success) {
+            console.log(`✅ 郵件測試成功 - MessageID: ${result.messageId}`);
+            res.json({
+                success: true,
+                message: '測試郵件發送成功',
+                data: {
+                    messageId: result.messageId,
+                    provider: result.provider,
+                    testType: testType,
+                    sentAt: new Date().toISOString(),
+                    recipient: email
+                }
+            });
+        } else {
+            console.error(`❌ 郵件測試失敗: ${result.message}`);
+            res.status(500).json({
+                success: false,
+                message: `郵件發送失敗: ${result.message}`,
+                error: result.error
+            });
+        }
+    } catch (error) {
+        console.error('❌ 郵件測試異常:', error);
+        res.status(500).json({
+            success: false,
+            message: '郵件測試發生異常',
+            error: error.message
+        });
+    }
+});
+
+router.get('/email-status', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        console.log('🔍 檢查郵件服務狀態...');
+
+        // 取得詳細診斷資訊
+        const diagnosticInfo = emailService.getDiagnosticInfo();
+
+        // 執行健康檢查
+        const healthCheck = await emailService.performHealthCheck();
+
+        const response = {
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            diagnostic: diagnosticInfo,
+            healthCheck: healthCheck,
+            summary: {
+                overall: healthCheck.overall,
+                initialized: emailService.initialized,
+                currentProvider: emailService.currentProvider?.name || 'none',
+                availableProviders: emailService.availableProviders.length,
+                failedProviders: emailService.failedProviders.size
+            }
+        };
+
+        console.log(`✅ 郵件服務狀態檢查完成 - 總體狀態: ${healthCheck.overall}`);
+        res.json(response);
+
+    } catch (error) {
+        console.error('❌ 郵件服務狀態檢查失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: '郵件服務狀態檢查失敗',
+            error: error.message,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    }
+});
+
+// 配置檢查和指導端點
+router.get('/email-config-guide', authenticateToken, checkGoogleAuth, async (req, res) => {
+    try {
+        console.log('📋 生成郵件配置指南...');
+
+        const diagnosticInfo = emailService.getDiagnosticInfo();
+        const environment = diagnosticInfo.environment;
+
+        // 生成平台特定的配置指南
+        const configGuide = {
+            platform: environment.platform,
+            currentStatus: {
+                initialized: emailService.initialized,
+                availableProviders: emailService.availableProviders.length,
+                recommendations: diagnosticInfo.recommendations
+            },
+            stepByStepGuide: generateConfigurationSteps(environment, diagnosticInfo),
+            troubleshooting: generateTroubleshootingSteps(environment, diagnosticInfo),
+            environmentVariables: generateEnvironmentVariableGuide(environment),
+            testingSteps: [
+                {
+                    step: 1,
+                    title: '設定環境變數',
+                    description: '在 Render Dashboard 或 .env 檔案中設定必要的 API 金鑰'
+                },
+                {
+                    step: 2,
+                    title: '重新啟動應用程式',
+                    description: '確保新的環境變數被載入'
+                },
+                {
+                    step: 3,
+                    title: '執行健康檢查',
+                    description: '訪問 /api/email/health-check 確認服務狀態'
+                },
+                {
+                    step: 4,
+                    title: '發送測試郵件',
+                    description: '使用郵件測試頁面發送測試郵件驗證功能'
+                }
+            ],
+            lastUpdated: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        };
+
+        console.log('✅ 郵件配置指南生成完成');
+        res.json({
+            success: true,
+            guide: configGuide
+        });
+
+    } catch (error) {
+        console.error('❌ 配置指南生成失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: '配置指南生成失敗',
+            error: error.message
+        });
+    }
+});
+
+// 輔助函數：生成配置步驟
+function generateConfigurationSteps(environment, diagnosticInfo) {
+    const steps = [];
+
+    if (environment.platform === 'Render.com') {
+        steps.push({
+            priority: 'high',
+            title: 'Render 平台配置',
+            steps: [
+                '登入 Render Dashboard',
+                '選擇您的應用程式',
+                '進入 Environment 設定頁面',
+                '添加以下環境變數：'
+            ],
+            variables: [
+                { key: 'RESEND_API_KEY', value: 're_xxxxxxxxxxxxxxxxxxxxxxxxxxxx', required: true },
+                { key: 'POSTMARK_API_KEY', value: 'your-postmark-server-token', required: false },
+                { key: 'EMAIL_FROM', value: 'noreply@yourdomain.com', required: true }
+            ]
+        });
+    } else {
+        steps.push({
+            priority: 'high',
+            title: '本地開發配置',
+            steps: [
+                '建立或編輯 .env.local 檔案',
+                '添加以下環境變數：'
+            ],
+            variables: [
+                { key: 'RESEND_API_KEY', value: 're_xxxxxxxxxxxxxxxxxxxxxxxxxxxx', required: true },
+                { key: 'EMAIL_FROM', value: 'noreply@yourdomain.com', required: true }
+            ]
+        });
+    }
+
+    return steps;
+}
+
+// 輔助函數：生成故障排除步驟
+function generateTroubleshootingSteps(environment, diagnosticInfo) {
+    const troubleshooting = [];
+
+    if (diagnosticInfo.serviceStatus.availableProviders === 0) {
+        troubleshooting.push({
+            problem: '沒有可用的郵件服務提供者',
+            solutions: [
+                '檢查環境變數是否正確設定',
+                '確認 API 金鑰格式正確',
+                '重新啟動應用程式',
+                '檢查服務提供者帳戶狀態'
+            ]
+        });
+    }
+
+    if (environment.platform === 'Render.com' && diagnosticInfo.configuration.gmail_smtp.configured) {
+        troubleshooting.push({
+            problem: 'SMTP 在 Render 平台無法使用',
+            solutions: [
+                '移除所有 SMTP 相關環境變數',
+                '改用 Resend 或 Postmark HTTP API',
+                '重新部署應用程式'
+            ]
+        });
+    }
+
+    return troubleshooting;
+}
+
+// 輔助函數：生成環境變數指南
+function generateEnvironmentVariableGuide(environment) {
+    const guide = {
+        platform: environment.platform,
+        required: [],
+        optional: [],
+        deprecated: []
+    };
+
+    // 必需的環境變數
+    guide.required.push(
+        { key: 'EMAIL_FROM', description: '發件人郵件地址', example: 'noreply@yourdomain.com' }
+    );
+
+    if (environment.platform === 'Render.com') {
+        guide.required.push(
+            { key: 'RESEND_API_KEY', description: 'Resend API 金鑰', example: 're_xxxxxxxxxxxxxxxxxxxxxxxxxxxx' }
+        );
+        guide.optional.push(
+            { key: 'POSTMARK_API_KEY', description: 'Postmark API 金鑰（備援）', example: 'your-postmark-server-token' }
+        );
+        guide.deprecated.push(
+            { key: 'SMTP_HOST', description: 'SMTP 主機（Render 不支援）', reason: 'Render 封鎖 SMTP 端口' },
+            { key: 'SMTP_USER', description: 'SMTP 用戶（Render 不支援）', reason: 'Render 封鎖 SMTP 端口' },
+            { key: 'SMTP_PASS', description: 'SMTP 密碼（Render 不支援）', reason: 'Render 封鎖 SMTP 端口' }
+        );
+    }
+
+    return guide;
+}
+
 router.post('/create-custom-admin', async (req, res) => {
     try {
         const { username, password } = req.body;

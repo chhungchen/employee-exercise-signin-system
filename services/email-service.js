@@ -559,6 +559,205 @@ class EmailService {
     }
 
     // 顯示配置說明
+    // 取得詳細診斷資訊
+    getDiagnosticInfo() {
+        const timestamp = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });
+
+        return {
+            timestamp,
+            environment: {
+                platform: this.isRender ? 'Render.com' : '本地開發',
+                nodeEnv: process.env.NODE_ENV || 'development',
+                renderDetected: process.env.RENDER === 'true',
+                platformLimitations: this.isRender ? ['SMTP 端口被封鎖', '僅支援 HTTP API'] : ['無限制']
+            },
+            serviceStatus: {
+                initialized: this.initialized,
+                currentProvider: this.currentProvider?.name || 'none',
+                availableProviders: this.availableProviders.length,
+                failedProviders: Array.from(this.failedProviders)
+            },
+            providersDetail: this.availableProviders.map(provider => ({
+                name: provider.name,
+                type: provider.type,
+                configured: true,
+                available: !this.failedProviders.has(provider.name),
+                priority: provider.priority || 'unknown',
+                from: provider.from
+            })),
+            configuration: {
+                resend: {
+                    configured: !!process.env.RESEND_API_KEY,
+                    keyPreview: process.env.RESEND_API_KEY ?
+                        `${process.env.RESEND_API_KEY.substring(0, 8)}...` : 'Not set'
+                },
+                postmark: {
+                    configured: !!process.env.POSTMARK_API_KEY,
+                    keyPreview: process.env.POSTMARK_API_KEY ?
+                        `${process.env.POSTMARK_API_KEY.substring(0, 8)}...` : 'Not set'
+                },
+                mailgun: {
+                    configured: !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN),
+                    domain: process.env.MAILGUN_DOMAIN || 'Not set',
+                    keyPreview: process.env.MAILGUN_API_KEY ?
+                        `${process.env.MAILGUN_API_KEY.substring(0, 8)}...` : 'Not set'
+                },
+                gmail_smtp: {
+                    configured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+                    available: !this.isRender,
+                    host: process.env.SMTP_HOST || 'Not set',
+                    user: process.env.SMTP_USER || 'Not set',
+                    note: this.isRender ? 'SMTP 在 Render 平台被封鎖' : 'SMTP 可用'
+                }
+            },
+            recommendations: this.generateRecommendations(),
+            lastUpdated: timestamp
+        };
+    }
+
+    // 生成配置建議
+    generateRecommendations() {
+        const recommendations = [];
+
+        if (this.isRender) {
+            // Render 平台建議
+            if (!process.env.RESEND_API_KEY) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'primary_service',
+                    message: '建議配置 Resend API 作為主要郵件服務',
+                    action: '設定 RESEND_API_KEY 環境變數',
+                    url: 'https://resend.com/'
+                });
+            }
+
+            if (!process.env.POSTMARK_API_KEY) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'backup_service',
+                    message: '建議配置 Postmark API 作為備援服務',
+                    action: '設定 POSTMARK_API_KEY 環境變數',
+                    url: 'https://postmarkapp.com/'
+                });
+            }
+
+            if (process.env.SMTP_HOST) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'platform_incompatible',
+                    message: 'Render 平台不支援 SMTP，建議移除 SMTP 配置',
+                    action: '移除 SMTP_HOST, SMTP_USER, SMTP_PASS 環境變數'
+                });
+            }
+        } else {
+            // 本地開發建議
+            if (this.availableProviders.length === 0) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'no_service',
+                    message: '沒有配置任何郵件服務',
+                    action: '建議先配置 Resend API 進行測試'
+                });
+            } else if (this.availableProviders.length === 1) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'single_service',
+                    message: '僅配置一個郵件服務，建議配置備援',
+                    action: '配置額外的郵件服務提供者'
+                });
+            }
+        }
+
+        return recommendations;
+    }
+
+    // 執行服務健康檢查
+    async performHealthCheck() {
+        console.log('🔍 執行郵件服務健康檢查...');
+
+        const healthReport = {
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            overall: 'unknown',
+            checks: []
+        };
+
+        try {
+            // 1. 初始化檢查
+            const initCheck = {
+                name: '服務初始化',
+                status: this.initialized ? 'pass' : 'fail',
+                message: this.initialized ? '服務已正常初始化' : '服務未初始化',
+                details: this.getDiagnosticInfo().serviceStatus
+            };
+            healthReport.checks.push(initCheck);
+
+            // 2. 提供者可用性檢查
+            const providerCheck = {
+                name: '提供者可用性',
+                status: this.availableProviders.length > 0 ? 'pass' : 'fail',
+                message: `發現 ${this.availableProviders.length} 個可用提供者`,
+                details: {
+                    available: this.availableProviders.map(p => p.name),
+                    failed: Array.from(this.failedProviders)
+                }
+            };
+            healthReport.checks.push(providerCheck);
+
+            // 3. 平台相容性檢查
+            const compatibilityCheck = {
+                name: '平台相容性',
+                status: 'pass',
+                message: '平台相容性正常',
+                details: {
+                    platform: this.isRender ? 'Render.com' : '本地開發',
+                    limitations: this.isRender ? ['SMTP 端口封鎖'] : ['無限制']
+                }
+            };
+
+            if (this.isRender && this.availableProviders.some(p => p.type === 'smtp')) {
+                compatibilityCheck.status = 'warning';
+                compatibilityCheck.message = '偵測到 SMTP 配置，但 Render 平台不支援';
+            }
+            healthReport.checks.push(compatibilityCheck);
+
+            // 4. 配置完整性檢查
+            const configCheck = {
+                name: '配置完整性',
+                status: this.availableProviders.length >= 2 ? 'pass' :
+                       this.availableProviders.length === 1 ? 'warning' : 'fail',
+                message: this.availableProviders.length >= 2 ? '配置多個提供者，具備備援能力' :
+                        this.availableProviders.length === 1 ? '僅配置一個提供者，建議添加備援' :
+                        '沒有配置可用的提供者',
+                details: {
+                    configured: this.availableProviders.length,
+                    recommended: 2
+                }
+            };
+            healthReport.checks.push(configCheck);
+
+            // 計算總體健康狀態
+            const failedChecks = healthReport.checks.filter(c => c.status === 'fail').length;
+            const warningChecks = healthReport.checks.filter(c => c.status === 'warning').length;
+
+            if (failedChecks > 0) {
+                healthReport.overall = 'unhealthy';
+            } else if (warningChecks > 0) {
+                healthReport.overall = 'warning';
+            } else {
+                healthReport.overall = 'healthy';
+            }
+
+            console.log(`✅ 健康檢查完成 - 總體狀態: ${healthReport.overall}`);
+            return healthReport;
+
+        } catch (error) {
+            console.error('❌ 健康檢查過程中發生錯誤:', error);
+            healthReport.overall = 'error';
+            healthReport.error = error.message;
+            return healthReport;
+        }
+    }
+
     showConfigurationHelp() {
         console.log('💡 多重 SMTP 服務配置說明:');
         console.log('');

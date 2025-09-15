@@ -132,6 +132,144 @@ if (useGoogleServices && usePersonalGoogle) {
     app.use('/api/admin', require('./routes/admin'));
 }
 
+// Email health check endpoint (available for all authentication types)
+app.get('/api/email/health-check', async (req, res) => {
+    try {
+        console.log('🔍 執行郵件服務健康檢查...');
+
+        const emailService = require('./services/email-service');
+
+        // 基本環境檢查
+        const environment = {
+            platform: process.env.RENDER ? 'Render.com' : '本地開發',
+            nodeEnv: process.env.NODE_ENV || 'development',
+            isProduction: process.env.NODE_ENV === 'production',
+            timestamp: new Date().toISOString(),
+            timezone: 'Asia/Taipei (UTC+8)'
+        };
+
+        // 檢查各郵件服務提供者配置
+        const providers = {
+            resend: {
+                name: 'Resend HTTP API',
+                configured: !!process.env.RESEND_API_KEY,
+                available: true,
+                priority: 1,
+                status: process.env.RESEND_API_KEY ? 'ready' : 'not_configured'
+            },
+            postmark: {
+                name: 'Postmark HTTP API',
+                configured: !!process.env.POSTMARK_API_KEY,
+                available: true,
+                priority: 2,
+                status: process.env.POSTMARK_API_KEY ? 'ready' : 'not_configured'
+            },
+            mailgun: {
+                name: 'Mailgun API',
+                configured: !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN),
+                available: true,
+                priority: 3,
+                status: (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) ? 'ready' : 'not_configured'
+            },
+            gmail_smtp: {
+                name: 'Gmail SMTP',
+                configured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+                available: !process.env.RENDER, // Render 封鎖 SMTP
+                priority: 4,
+                status: process.env.RENDER ? 'blocked_by_platform' :
+                       (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) ? 'ready' : 'not_configured'
+            }
+        };
+
+        // 計算可用提供者
+        const availableProviders = Object.entries(providers)
+            .filter(([_, provider]) => provider.configured && provider.available)
+            .sort((a, b) => a[1].priority - b[1].priority);
+
+        // 系統健康狀態評估
+        let healthStatus = 'unknown';
+        let healthMessage = '';
+
+        if (availableProviders.length === 0) {
+            healthStatus = 'critical';
+            healthMessage = '無可用的郵件服務提供者';
+        } else if (availableProviders.length === 1) {
+            healthStatus = 'warning';
+            healthMessage = '僅有一個郵件服務提供者，建議配置備援';
+        } else {
+            healthStatus = 'healthy';
+            healthMessage = `${availableProviders.length} 個郵件服務提供者可用`;
+        }
+
+        // 生成建議
+        const recommendations = [];
+        if (environment.platform === 'Render.com') {
+            if (!providers.resend.configured) {
+                recommendations.push({
+                    priority: 'high',
+                    message: '建議配置 Resend API 作為主要郵件服務',
+                    action: '在 Render Dashboard 設定 RESEND_API_KEY 環境變數'
+                });
+            }
+            if (!providers.postmark.configured) {
+                recommendations.push({
+                    priority: 'medium',
+                    message: '建議配置 Postmark API 作為備援服務',
+                    action: '在 Render Dashboard 設定 POSTMARK_API_KEY 環境變數'
+                });
+            }
+            if (providers.gmail_smtp.configured) {
+                recommendations.push({
+                    priority: 'high',
+                    message: 'Gmail SMTP 在 Render 平台無法使用',
+                    action: '移除 SMTP 相關環境變數，改用 HTTP API 服務'
+                });
+            }
+        } else {
+            // 本地開發環境建議
+            if (availableProviders.length === 0) {
+                recommendations.push({
+                    priority: 'high',
+                    message: '本地開發建議先配置 Resend API 進行測試',
+                    action: '設定 .env.local 檔案中的 RESEND_API_KEY'
+                });
+            }
+        }
+
+        const healthReport = {
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            environment,
+            health: {
+                status: healthStatus,
+                message: healthMessage,
+                score: availableProviders.length >= 2 ? 100 : availableProviders.length === 1 ? 60 : 0
+            },
+            providers,
+            summary: {
+                totalProviders: Object.keys(providers).length,
+                configuredProviders: Object.values(providers).filter(p => p.configured).length,
+                availableProviders: availableProviders.length,
+                primaryProvider: availableProviders[0] ? availableProviders[0][0] : 'none'
+            },
+            recommendations,
+            nextCheck: new Date(Date.now() + 5 * 60 * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }) // 5分鐘後
+        };
+
+        console.log(`✅ 郵件服務健康檢查完成 - 狀態: ${healthStatus}, 可用服務: ${availableProviders.length}`);
+        res.json(healthReport);
+
+    } catch (error) {
+        console.error('❌ 郵件服務健康檢查失敗:', error);
+        res.status(500).json({
+            success: false,
+            message: '郵件服務健康檢查失敗',
+            error: error.message,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    }
+});
+
 // 首頁路由
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -140,6 +278,11 @@ app.get('/', (req, res) => {
 // 後台管理路由
 app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin', 'index.html'));
+});
+
+// 郵件測試頁面路由
+app.get('/admin/email-test', (req, res) => {
+    res.sendFile(path.join(__dirname, 'admin', 'email-test.html'));
 });
 
 // 404處理
