@@ -2266,4 +2266,79 @@ router.post('/stop-smtp-health-check', authenticateToken, async (req, res) => {
     }
 });
 
+// Gmail SMTP 專用健康檢查端點
+router.post('/gmail-health-check', authenticateToken, async (req, res) => {
+    try {
+        console.log('🏥 管理員執行 Gmail SMTP 健康檢查...');
+
+        const healthReport = await emailService.performGmailHealthCheck();
+
+        res.json({
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            data: healthReport
+        });
+
+    } catch (error) {
+        console.error('❌ Gmail SMTP 健康檢查失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    }
+});
+
+// Gmail SMTP 自動修復端點
+router.post('/gmail-auto-repair', authenticateToken, async (req, res) => {
+    try {
+        console.log('🔧 管理員執行 Gmail SMTP 自動修復...');
+
+        const repairSuccess = await emailService.autoRepairGmailConnection();
+
+        res.json({
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            data: {
+                repairSuccess: repairSuccess,
+                message: repairSuccess ? 'Gmail SMTP 自動修復成功' : 'Gmail SMTP 自動修復失敗',
+                nextSteps: repairSuccess
+                    ? ['Gmail SMTP 連接已恢復', '建議執行健康檢查驗證穩定性']
+                    : ['自動修復失敗', '建議檢查環境變數配置', '考慮切換到 SendGrid 等備援服務']
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Gmail SMTP 自動修復失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    }
+});
+
+// 詳細連接狀態報告端點
+router.get('/detailed-connection-status', authenticateToken, async (req, res) => {
+    try {
+        console.log('📊 管理員查詢詳細連接狀態...');
+
+        const detailedStatus = emailService.getDetailedConnectionStatus();
+
+        res.json({
+            success: true,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            data: detailedStatus
+        });
+
+    } catch (error) {
+        console.error('❌ 獲取詳細連接狀態失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+        });
+    }
+});
+
 module.exports = router;

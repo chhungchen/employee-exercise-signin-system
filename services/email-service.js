@@ -127,47 +127,58 @@ class EmailService {
 
     // 嘗試連接指定的提供者
     async tryConnectProvider(provider) {
-        const maxRetries = 2; // 每個提供者重試 2 次
-        
+        const maxRetries = 3; // 增加重試次數到 3 次
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 console.log(`🔄 嘗試連線到 ${provider.name} (第 ${attempt}/${maxRetries} 次): ${provider.host}:${provider.port}`);
-                
-                // 建立 SMTP 傳輸器配置
+
+                // 每次重試前清除舊的 transporter
+                if (this.transporter) {
+                    try {
+                        this.transporter.close();
+                    } catch (e) {
+                        // 忽略關閉錯誤
+                    }
+                    this.transporter = null;
+                }
+
+                // 建立新的 SMTP 傳輸器配置
                 const transportConfig = this.createTransportConfig(provider);
-                
                 this.transporter = nodemailer.createTransport(transportConfig);
 
-                // 驗證連線，設定超時
+                // 驗證連線，使用動態超時（Gmail 需要更長時間）
+                const verifyTimeout = provider.type === 'gmail' ? 30000 : 20000;
                 const verifyPromise = this.transporter.verify();
                 const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('SMTP 驗證超時')), 15000);
+                    setTimeout(() => reject(new Error('SMTP 驗證超時')), verifyTimeout);
                 });
-                
+
                 await Promise.race([verifyPromise, timeoutPromise]);
-                
-                console.log(`✅ ${provider.name} 連接成功`);
+
+                console.log(`✅ ${provider.name} 連接成功 (第 ${attempt} 次嘗試)`);
                 return true;
 
             } catch (error) {
                 console.error(`❌ ${provider.name} 第 ${attempt} 次連線失敗:`, error.message);
-                
+
                 // 提供詳細的錯誤診斷
                 this.diagnoseError(error, provider);
-                
+
                 // 最後一次重試失敗
                 if (attempt === maxRetries) {
                     console.error(`💀 ${provider.name} 所有重試都失敗`);
                     return false;
                 }
-                
-                // 等待後重試
-                const retryDelay = attempt * 1000; // 1s, 2s
-                console.log(`⏳ ${retryDelay/1000} 秒後重試...`);
+
+                // 指數退避延遲 (1s, 3s, 7s)
+                const baseDelay = 1000;
+                const retryDelay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+                console.log(`⏳ ${Math.round(retryDelay/1000)} 秒後重試... (指數退避)`);
                 await new Promise(resolve => setTimeout(resolve, retryDelay));
             }
         }
-        
+
         return false;
     }
 
@@ -177,39 +188,43 @@ class EmailService {
             host: provider.host,
             port: parseInt(provider.port),
             secure: provider.port == 465, // true for 465, false for other ports
-            // 連線超時設定
-            connectionTimeout: 15000, // 15 秒連線超時
-            greetingTimeout: 10000,   // 10 秒問候超時
-            socketTimeout: 30000,     // 30 秒 socket 超時
-            // 連線池設定
-            pool: true,
-            maxConnections: 5,
-            maxMessages: 100,
+            // 延長超時設定（針對 Render 平台優化）
+            connectionTimeout: 30000, // 30 秒連線超時（從 15 秒增加）
+            greetingTimeout: 20000,   // 20 秒問候超時（從 10 秒增加）
+            socketTimeout: 45000,     // 45 秒 socket 超時（從 30 秒增加）
+            // 停用連線池設定（提高 Gmail SMTP 穩定性）
+            pool: false,              // 停用連接池
+            maxConnections: 1,        // 單一連接
+            maxMessages: 1,           // 每次發送建立新連接
             // 調試模式 (開發環境)
             debug: process.env.NODE_ENV === 'development'
         };
 
         // 根據提供者類型設定特定配置
         if (provider.type === 'gmail') {
-            console.log('🔧 應用 Gmail SMTP 特定設定...');
-            
-            // Gmail 專用 TLS 設定（更寬鬆，適合雲端環境）
+            console.log('🔧 應用 Gmail SMTP 特定設定 (Render 平台優化)...');
+
+            // Gmail 專用 TLS 設定（針對 Render 平台優化）
             transportConfig.tls = {
                 rejectUnauthorized: false,
-                // 強制使用 TLS 1.2 以上
+                // 強制使用 TLS 1.2-1.3
                 minVersion: 'TLSv1.2',
-                // 允許更多的加密套件
-                ciphers: 'HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA',
-                // 雲端環境優化
+                maxVersion: 'TLSv1.3',
+                // 嚴格限制加密套件（提高相容性）
+                ciphers: 'HIGH:!aNULL:!eNULL',
+                // Render 平台優化
                 secureProtocol: 'TLS_method',
+                servername: 'smtp.gmail.com',
                 // 忽略憑證驗證問題（雲端環境常見）
-                checkServerIdentity: false
+                checkServerIdentity: false,
+                // 增加 session 超時
+                sessionTimeout: 30000
             };
 
-            // Gmail 連線優化
+            // Gmail 連線優化（移除連接池，使用單一連接）
             transportConfig.requireTLS = true;
             transportConfig.secure = provider.port == 465;
-            
+
             // 如果是 587 埠，啟用 STARTTLS
             if (provider.port == 587) {
                 transportConfig.secure = false;
@@ -470,13 +485,41 @@ class EmailService {
             // 檢查服務是否已初始化
             if (!this.initialized || !this.transporter) {
                 console.log(`⚠️ 郵件服務未初始化，嘗試重新初始化... (第 ${attempt}/${maxRetries} 次)`);
-                
+
                 const initSuccess = await this.initialize();
                 if (!initSuccess) {
                     if (attempt === maxRetries) {
                         throw new Error('郵件服務初始化失敗，無法發送郵件');
                     }
                     continue;
+                }
+            }
+
+            // 連接預檢查機制（特別是 Gmail SMTP）
+            if (this.currentProvider?.type === 'gmail') {
+                console.log('🔍 Gmail SMTP 連接預檢查...');
+                try {
+                    const verifyTimeout = 10000; // 10 秒快速檢查
+                    const verifyPromise = this.transporter.verify();
+                    const timeoutPromise = new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('預檢查超時')), verifyTimeout);
+                    });
+
+                    await Promise.race([verifyPromise, timeoutPromise]);
+                    console.log('✅ Gmail SMTP 預檢查通過');
+                } catch (error) {
+                    console.warn(`⚠️ Gmail SMTP 預檢查失敗: ${error.message}`);
+                    console.log('🔄 重新建立 Gmail SMTP 連接...');
+
+                    // 預檢查失敗，重新建立連接
+                    const reconnectSuccess = await this.tryConnectProvider(this.currentProvider);
+                    if (!reconnectSuccess) {
+                        console.error('❌ Gmail SMTP 重新連接失敗，嘗試切換提供者...');
+                        const switchSuccess = await this.switchToNextProvider();
+                        if (!switchSuccess) {
+                            throw new Error('所有 SMTP 提供者都無法連接');
+                        }
+                    }
                 }
             }
 
@@ -1076,6 +1119,214 @@ ${downloadResults.join('\n')}
     // 檢查服務狀態
     isConfigured() {
         return this.initialized && this.transporter !== null;
+    }
+
+    // Gmail SMTP 專用健康檢查
+    async performGmailHealthCheck() {
+        console.log('🏥 執行 Gmail SMTP 專用健康檢查...');
+
+        const healthReport = {
+            timestamp: new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' }),
+            gmailProvider: null,
+            connectionTests: [],
+            recommendations: []
+        };
+
+        // 尋找 Gmail 提供者
+        const gmailProvider = this.availableProviders.find(p => p.type === 'gmail');
+        if (!gmailProvider) {
+            healthReport.recommendations.push('❌ 未檢測到 Gmail SMTP 提供者配置');
+            return healthReport;
+        }
+
+        healthReport.gmailProvider = {
+            name: gmailProvider.name,
+            host: gmailProvider.host,
+            port: gmailProvider.port,
+            status: this.failedProviders.has(gmailProvider.name) ? 'failed' : 'available'
+        };
+
+        // 執行多次連接測試
+        const testCount = 3;
+        console.log(`🧪 執行 ${testCount} 次 Gmail SMTP 連接測試...`);
+
+        for (let i = 1; i <= testCount; i++) {
+            const testStart = Date.now();
+            console.log(`🔍 Gmail SMTP 測試 ${i}/${testCount}...`);
+
+            try {
+                // 建立測試連接
+                const testConfig = this.createTransportConfig(gmailProvider);
+                const testTransporter = nodemailer.createTransport(testConfig);
+
+                // 驗證連接
+                await testTransporter.verify();
+
+                const duration = Date.now() - testStart;
+                healthReport.connectionTests.push({
+                    test: i,
+                    success: true,
+                    duration: duration,
+                    message: `連接成功 (${duration}ms)`
+                });
+
+                console.log(`✅ Gmail SMTP 測試 ${i} 成功: ${duration}ms`);
+
+                // 關閉測試連接
+                testTransporter.close();
+
+            } catch (error) {
+                const duration = Date.now() - testStart;
+                healthReport.connectionTests.push({
+                    test: i,
+                    success: false,
+                    duration: duration,
+                    error: error.message,
+                    message: `連接失敗: ${error.message}`
+                });
+
+                console.error(`❌ Gmail SMTP 測試 ${i} 失敗: ${error.message} (${duration}ms)`);
+            }
+
+            // 測試間隔
+            if (i < testCount) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+
+        // 分析測試結果並提供建議
+        const successfulTests = healthReport.connectionTests.filter(t => t.success);
+        const failedTests = healthReport.connectionTests.filter(t => !t.success);
+        const successRate = (successfulTests.length / testCount) * 100;
+
+        healthReport.summary = {
+            successRate: successRate,
+            averageResponseTime: successfulTests.length > 0
+                ? Math.round(successfulTests.reduce((sum, t) => sum + t.duration, 0) / successfulTests.length)
+                : 0,
+            totalTests: testCount,
+            successfulTests: successfulTests.length,
+            failedTests: failedTests.length
+        };
+
+        // 提供建議
+        if (successRate === 100) {
+            healthReport.recommendations.push('✅ Gmail SMTP 連接穩定，無需額外行動');
+        } else if (successRate >= 70) {
+            healthReport.recommendations.push('⚠️ Gmail SMTP 連接間歇性不穩定，建議配置 SendGrid 備援');
+        } else if (successRate >= 30) {
+            healthReport.recommendations.push('🔄 Gmail SMTP 連接問題嚴重，建議重新配置或更換 SMTP 服務');
+        } else {
+            healthReport.recommendations.push('❌ Gmail SMTP 幾乎無法連接，強烈建議切換到其他 SMTP 服務');
+        }
+
+        if (failedTests.length > 0) {
+            const commonErrors = failedTests.map(t => t.error).reduce((acc, error) => {
+                acc[error] = (acc[error] || 0) + 1;
+                return acc;
+            }, {});
+
+            const mostCommonError = Object.keys(commonErrors).reduce((a, b) =>
+                commonErrors[a] > commonErrors[b] ? a : b
+            );
+
+            healthReport.recommendations.push(`🔍 主要錯誤: ${mostCommonError}`);
+        }
+
+        console.log(`🏥 Gmail SMTP 健康檢查完成: ${successRate.toFixed(1)}% 成功率`);
+        return healthReport;
+    }
+
+    // 自動修復 Gmail SMTP 連接
+    async autoRepairGmailConnection() {
+        console.log('🔧 執行 Gmail SMTP 自動修復...');
+
+        const gmailProvider = this.availableProviders.find(p => p.type === 'gmail');
+        if (!gmailProvider) {
+            console.error('❌ 找不到 Gmail SMTP 提供者');
+            return false;
+        }
+
+        // 修復步驟
+        const repairSteps = [
+            '清除失敗狀態',
+            '關閉現有連接',
+            '重新建立連接',
+            '驗證連接狀態'
+        ];
+
+        for (let i = 0; i < repairSteps.length; i++) {
+            console.log(`🔧 步驟 ${i + 1}/${repairSteps.length}: ${repairSteps[i]}...`);
+
+            try {
+                switch (i) {
+                    case 0: // 清除失敗狀態
+                        this.failedProviders.delete(gmailProvider.name);
+                        break;
+
+                    case 1: // 關閉現有連接
+                        if (this.transporter) {
+                            this.transporter.close();
+                            this.transporter = null;
+                        }
+                        break;
+
+                    case 2: // 重新建立連接
+                        const success = await this.tryConnectProvider(gmailProvider);
+                        if (!success) {
+                            throw new Error('無法重新建立連接');
+                        }
+                        this.currentProvider = gmailProvider;
+                        this.initialized = true;
+                        break;
+
+                    case 3: // 驗證連接狀態
+                        await this.transporter.verify();
+                        break;
+                }
+
+                console.log(`✅ 步驟 ${i + 1} 完成`);
+
+            } catch (error) {
+                console.error(`❌ 步驟 ${i + 1} 失敗: ${error.message}`);
+                return false;
+            }
+        }
+
+        console.log('✅ Gmail SMTP 自動修復完成');
+        return true;
+    }
+
+    // 獲取詳細的連接狀態報告
+    getDetailedConnectionStatus() {
+        const status = this.getServiceStatus();
+
+        status.connectionDetails = {
+            lastConnectionAttempt: this.lastConnectionAttempt || 'never',
+            totalConnectionAttempts: this.totalConnectionAttempts || 0,
+            consecutiveFailures: this.consecutiveFailures || 0,
+            lastSuccessfulConnection: this.lastSuccessfulConnection || 'never'
+        };
+
+        // Gmail 特定狀態
+        const gmailProvider = this.availableProviders.find(p => p.type === 'gmail');
+        if (gmailProvider) {
+            status.gmailStatus = {
+                configured: true,
+                host: gmailProvider.host,
+                port: gmailProvider.port,
+                currentlyActive: this.currentProvider?.type === 'gmail',
+                failureCount: this.gmailFailureCount || 0,
+                lastGmailError: this.lastGmailError || 'none'
+            };
+        } else {
+            status.gmailStatus = {
+                configured: false,
+                message: '未檢測到 Gmail SMTP 配置'
+            };
+        }
+
+        return status;
     }
 }
 
