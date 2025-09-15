@@ -531,7 +531,12 @@ router.post('/login', checkGoogleAuth, async (req, res) => {
             { expiresIn: '24h' }
         );
 
-        res.json({ 
+        // 設定 session
+        req.session.isAdmin = true;
+        req.session.adminId = admin.id;
+        req.session.adminUsername = admin.username;
+
+        res.json({
             message: '登入成功',
             token,
             admin: {
@@ -743,10 +748,37 @@ router.post('/change-password', authenticateToken, checkGoogleAuth, async (req, 
     }
 });
 
+// 簡單的 session 檢查端點 (用於診斷頁面)
+router.get('/check-session', checkGoogleAuth, (req, res) => {
+    // 檢查是否有有效的管理員 session
+    if (req.session && req.session.isAdmin) {
+        // 生成臨時 token 供 API 使用
+        const token = jwt.sign(
+            {
+                username: req.session.adminUsername,
+                id: req.session.adminId
+            },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.json({
+            authenticated: true,
+            token: token,
+            message: '管理員已登入'
+        });
+    } else {
+        res.status(401).json({
+            authenticated: false,
+            message: '需要管理員登入'
+        });
+    }
+});
+
 // 驗證 Token
 router.get('/verify', authenticateToken, checkGoogleAuth, (req, res) => {
-    res.json({ 
-        valid: true, 
+    res.json({
+        valid: true,
         user: req.user,
         message: 'Token 有效'
     });
