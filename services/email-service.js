@@ -3,6 +3,7 @@ const JSZip = require('jszip');
 const XLSX = require('xlsx');
 const { Resend } = require('resend');
 const { Client } = require('postmark');
+const brevo = require('@getbrevo/brevo');
 const personalGoogleServices = require('./personal-google-services');
 
 class EmailService {
@@ -15,6 +16,7 @@ class EmailService {
         this.isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
         this.resendClient = null;
         this.postmarkClient = null;
+        this.brevoClient = null;
     }
 
     // 初始化郵件服務
@@ -178,11 +180,30 @@ class EmailService {
             console.log(`✅ Postmark HTTP API 已配置 (${envType}優先級 ${priority})`);
         }
 
+        // Brevo HTTP API (適用於所有環境)
+        if (process.env.BREVO_API_KEY) {
+            if (!this.isRender) {
+                this.brevoClient = new brevo.TransactionalEmailsApi();
+                this.brevoClient.authentications['apiKey'].apiKey = process.env.BREVO_API_KEY;
+            }
+            providers.push({
+                name: 'Brevo API',
+                priority: this.isRender ? 3 : 4, // Render 環境優先級 3，本地環境優先級 4
+                type: 'brevo',
+                from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
+                requiresAuth: false,
+                isHttpApi: true
+            });
+            const envType = this.isRender ? 'Render 環境' : '本地環境';
+            const priority = this.isRender ? 3 : 4;
+            console.log(`✅ Brevo HTTP API 已配置 (${envType}優先級 ${priority})`);
+        }
+
         // Mailgun SMTP (適用於所有環境)
         if (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) {
             providers.push({
                 name: 'Mailgun SMTP',
-                priority: this.isRender ? 4 : 4,
+                priority: this.isRender ? 5 : 5,
                 host: 'smtp.mailgun.org',
                 port: 587,
                 user: `postmaster@${process.env.MAILGUN_DOMAIN}`,
@@ -1695,6 +1716,8 @@ ${downloadResults.join('\n')}
                 return await this.sendEmailViaResend(to, subject, htmlContent, attachments, fromEmail);
             } else if (this.currentProvider.type === 'postmark') {
                 return await this.sendEmailViaPostmark(to, subject, htmlContent, attachments, fromEmail);
+            } else if (this.currentProvider.type === 'brevo') {
+                return await this.sendEmailViaBrevo(to, subject, htmlContent, attachments, fromEmail);
             } else {
                 throw new Error(`不支援的 HTTP API 服務類型: ${this.currentProvider.type}`);
             }
@@ -1953,6 +1976,54 @@ ${downloadResults.join('\n')}
         } catch (error) {
             console.error('❌ Postmark 發送失敗:', error);
             throw new Error(`Postmark API 錯誤: ${error.message}`);
+        }
+    }
+
+    // Brevo HTTP API 發送
+    async sendEmailViaBrevo(to, subject, htmlContent, attachments, from) {
+        try {
+            // 建立 Brevo client (如果還沒有)
+            if (!this.brevoClient) {
+                this.brevoClient = new brevo.TransactionalEmailsApi();
+                this.brevoClient.authentications['apiKey'].apiKey = process.env.BREVO_API_KEY;
+            }
+
+            const emailData = new brevo.SendSmtpEmail();
+
+            // 設定基本郵件資訊
+            emailData.sender = {
+                email: from,
+                name: "員工運動系統"
+            };
+            emailData.to = Array.isArray(to) ?
+                to.map(email => ({ email })) :
+                [{ email: to }];
+            emailData.subject = subject;
+            emailData.htmlContent = htmlContent;
+
+            // 處理附件
+            if (attachments && attachments.length > 0) {
+                emailData.attachment = attachments.map(attachment => ({
+                    name: attachment.filename,
+                    content: attachment.content.toString('base64')
+                }));
+            }
+
+            const data = await this.brevoClient.sendTransacEmail(emailData);
+
+            console.log(`✅ Brevo 郵件發送成功: ${data.messageId}`);
+            console.log(`🚀 使用提供者: Brevo API`);
+
+            return {
+                success: true,
+                messageId: data.messageId,
+                response: 'Brevo API 發送成功',
+                provider: 'Brevo API'
+            };
+
+        } catch (error) {
+            console.error('❌ Brevo 發送失敗:', error);
+            throw new Error(`Brevo API 錯誤: ${error.message}`);
         }
     }
 }

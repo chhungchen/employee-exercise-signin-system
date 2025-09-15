@@ -177,18 +177,25 @@ app.get('/api/email/health-check', async (req, res) => {
                 priority: 2,
                 status: process.env.POSTMARK_API_KEY ? 'ready' : 'not_configured'
             },
+            brevo: {
+                name: 'Brevo HTTP API',
+                configured: !!process.env.BREVO_API_KEY,
+                available: true,
+                priority: 3,
+                status: process.env.BREVO_API_KEY ? 'ready' : 'not_configured'
+            },
             mailgun: {
                 name: 'Mailgun API',
                 configured: !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN),
                 available: true,
-                priority: 3,
+                priority: 4,
                 status: (process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN) ? 'ready' : 'not_configured'
             },
             gmail_smtp: {
                 name: 'Gmail SMTP',
                 configured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
                 available: !process.env.RENDER, // Render 封鎖 SMTP
-                priority: 4,
+                priority: 5,
                 status: process.env.RENDER ? 'blocked_by_platform' :
                        (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) ? 'ready' : 'not_configured'
             }
@@ -224,10 +231,17 @@ app.get('/api/email/health-check', async (req, res) => {
                     action: '在 Render Dashboard 設定 RESEND_API_KEY 環境變數'
                 });
             }
+            if (!providers.brevo.configured) {
+                recommendations.push({
+                    priority: 'medium',
+                    message: '建議配置 Brevo API 作為備援服務',
+                    action: '在 Render Dashboard 設定 BREVO_API_KEY 環境變數'
+                });
+            }
             if (!providers.postmark.configured) {
                 recommendations.push({
                     priority: 'medium',
-                    message: '建議配置 Postmark API 作為備援服務',
+                    message: '建議配置 Postmark API 作為第三備援服務',
                     action: '在 Render Dashboard 設定 POSTMARK_API_KEY 環境變數'
                 });
             }
