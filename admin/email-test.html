@@ -311,27 +311,133 @@
             logCounter++;
         }
 
-        // 簡化的認證檢查 - 診斷頁面使用
-        async function getAuthToken() {
-            // 檢查是否從管理員頁面訪問
-            const adminAccess = sessionStorage.getItem('adminAccess') ||
-                               localStorage.getItem('adminToken') ||
-                               (window.location.pathname.includes('/admin/'));
-
-            if (adminAccess) {
-                addLog('✅ 管理員診斷模式啟用', 'success');
-                return 'admin-diagnostic-mode';
+        // 通用 API 調用函數
+        async function makeAuthenticatedRequest(url, options = {}) {
+            const token = await getAuthToken();
+            if (!token) {
+                throw new Error('無法驗證管理員權限');
             }
 
-            // 簡單的密碼確認
+            const headers = {
+                'Content-Type': 'application/json',
+                ...options.headers
+            };
+
+            // 如果有真正的 JWT token，添加 Authorization 標頭
+            if (token && token !== 'admin-diagnostic-mode') {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            return fetch(url, {
+                ...options,
+                headers: headers,
+                credentials: 'include'
+            });
+        }
+
+        // 增強的認證檢查 - 支援真正的 JWT Token
+        async function getAuthToken() {
+            // 嘗試從 localStorage 獲取現有 token
+            let token = localStorage.getItem('adminToken');
+
+            if (token) {
+                // 驗證現有 token 是否有效
+                try {
+                    const verifyResponse = await fetch('/api/admin/verify', {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        credentials: 'include'
+                    });
+
+                    if (verifyResponse.ok) {
+                        addLog('✅ 使用現有 JWT Token', 'success');
+                        return token;
+                    } else {
+                        // Token 無效，清除並重新獲取
+                        localStorage.removeItem('adminToken');
+                        addLog('⚠️ Token 已過期，重新獲取中...', 'info');
+                    }
+                } catch (error) {
+                    console.log('Token 驗證失敗:', error);
+                    localStorage.removeItem('adminToken');
+                }
+            }
+
+            // 嘗試通過 session 獲取新的 token
+            try {
+                const sessionResponse = await fetch('/api/admin/check-session', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include'
+                });
+
+                if (sessionResponse.ok) {
+                    const sessionData = await sessionResponse.json();
+                    if (sessionData.authenticated && sessionData.token) {
+                        localStorage.setItem('adminToken', sessionData.token);
+                        addLog('✅ 通過 Session 獲取 JWT Token', 'success');
+                        return sessionData.token;
+                    }
+                }
+            } catch (error) {
+                console.log('Session 檢查失敗:', error);
+            }
+
+            // 檢查簡單的診斷模式
+            const adminAccess = sessionStorage.getItem('adminAccess');
+            if (adminAccess) {
+                // 嘗試登入以獲取真正的 token
+                return await attemptAdminLogin();
+            }
+
+            // 要求密碼登入
             const password = prompt('請輸入管理員密碼以使用診斷工具：');
             if (password === 'admin123' || password === 'admin') {
                 sessionStorage.setItem('adminAccess', 'true');
-                addLog('✅ 管理員身份驗證成功', 'success');
-                return 'admin-diagnostic-mode';
+                return await attemptAdminLogin(password);
             }
 
             addLog('❌ 密碼錯誤，無法使用診斷工具', 'error');
+            return null;
+        }
+
+        // 嘗試管理員登入獲取 JWT Token
+        async function attemptAdminLogin(password = 'admin') {
+            try {
+                const loginResponse = await fetch('/api/admin/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        username: 'admin',
+                        password: password
+                    })
+                });
+
+                if (loginResponse.ok) {
+                    const loginData = await loginResponse.json();
+                    if (loginData.token) {
+                        localStorage.setItem('adminToken', loginData.token);
+                        addLog('✅ 管理員登入成功，獲取 JWT Token', 'success');
+                        return loginData.token;
+                    }
+                } else {
+                    addLog('⚠️ 管理員登入失敗，使用診斷模式', 'warning');
+                    return 'admin-diagnostic-mode';
+                }
+            } catch (error) {
+                console.log('登入嘗試失敗:', error);
+                addLog('⚠️ 登入失敗，使用診斷模式', 'warning');
+                return 'admin-diagnostic-mode';
+            }
+
             return null;
         }
 
@@ -345,19 +451,7 @@
             addLog('正在檢查郵件服務狀態...', 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/email-status', {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include' // 使用 session 認證
-                });
+                const response = await makeAuthenticatedRequest('/api/admin/email-status');
 
                 const data = await response.json();
 
@@ -470,19 +564,8 @@
             addLog(`📧 開始發送測試郵件到 ${email}...`, 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/test-email', {
+                const response = await makeAuthenticatedRequest('/api/admin/test-email', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include',
                     body: JSON.stringify({
                         email: email,
                         testType: type,
@@ -582,19 +665,7 @@
             addLog('🔄 開始測試所有郵件提供者...', 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/test-all-providers', {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include'
-                });
+                const response = await makeAuthenticatedRequest('/api/admin/test-all-providers');
 
                 const data = await response.json();
 
@@ -634,19 +705,7 @@
             addLog('🔍 檢查 Render 環境變數配置...', 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/check-render-config', {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include'
-                });
+                const response = await makeAuthenticatedRequest('/api/admin/check-render-config');
 
                 const data = await response.json();
 
@@ -694,19 +753,7 @@
             addLog('🔑 驗證 Resend API 金鑰...', 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/validate-resend', {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include'
-                });
+                const response = await makeAuthenticatedRequest('/api/admin/validate-resend');
 
                 const data = await response.json();
 
@@ -752,19 +799,7 @@
             addLog('🔍 執行 Resend API 完整診斷...', 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/resend-diagnostics', {
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include'
-                });
+                const response = await makeAuthenticatedRequest('/api/admin/resend-diagnostics');
 
                 const data = await response.json();
 
@@ -841,19 +876,8 @@
             addLog(`📧 開始郵件投遞測試 - 收件人: ${recipientEmail}`, 'info');
 
             try {
-                // 獲取認證 Token
-                const token = await getAuthToken();
-                if (!token) {
-                    addLog('❌ 無法驗證管理員權限', 'error');
-                    return;
-                }
-
-                const response = await fetch('/api/admin/test-email-delivery', {
+                const response = await makeAuthenticatedRequest('/api/admin/test-email-delivery', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include',
                     body: JSON.stringify({
                         recipientEmail: recipientEmail,
                         testType: 'comprehensive'

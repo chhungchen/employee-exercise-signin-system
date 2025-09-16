@@ -151,15 +151,16 @@ class EmailService {
             }
             providers.push({
                 name: 'Resend API',
-                priority: this.isRender ? 1 : 2, // Render 環境優先級 1，本地環境優先級 2
+                priority: this.isRender ? 2 : 2, // Render 環境優先級 2（備援），本地環境優先級 2
                 type: 'resend',
                 from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                 requiresAuth: false,
                 isHttpApi: true
             });
             const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 1 : 2;
-            console.log(`✅ Resend HTTP API 已配置 (${envType}優先級 ${priority})`);
+            const priority = this.isRender ? 2 : 2;
+            const note = this.isRender ? '(備援服務)' : '';
+            console.log(`✅ Resend HTTP API 已配置 (${envType}優先級 ${priority} ${note})`);
         }
 
         // Postmark HTTP API (適用於所有環境)
@@ -169,14 +170,14 @@ class EmailService {
             }
             providers.push({
                 name: 'Postmark API',
-                priority: this.isRender ? 2 : 3, // Render 環境優先級 2，本地環境優先級 3
+                priority: this.isRender ? 3 : 3, // Render 環境優先級 3，本地環境優先級 3
                 type: 'postmark',
                 from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                 requiresAuth: false,
                 isHttpApi: true
             });
             const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 2 : 3;
+            const priority = this.isRender ? 3 : 3;
             console.log(`✅ Postmark HTTP API 已配置 (${envType}優先級 ${priority})`);
         }
 
@@ -188,15 +189,16 @@ class EmailService {
             }
             providers.push({
                 name: 'Brevo API',
-                priority: this.isRender ? 3 : 4, // Render 環境優先級 3，本地環境優先級 4
+                priority: this.isRender ? 1 : 4, // Render 環境優先級 1（主要），本地環境優先級 4
                 type: 'brevo',
                 from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                 requiresAuth: false,
                 isHttpApi: true
             });
             const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 3 : 4;
-            console.log(`✅ Brevo HTTP API 已配置 (${envType}優先級 ${priority})`);
+            const priority = this.isRender ? 1 : 4;
+            const note = this.isRender ? '(主要服務)' : '';
+            console.log(`✅ Brevo HTTP API 已配置 (${envType}優先級 ${priority} ${note})`);
         }
 
         // Mailgun SMTP (適用於所有環境)
@@ -833,7 +835,17 @@ class EmailService {
     // 發送郵件（支援自動故障切換）
     async sendEmail(to, subject, htmlContent, attachments = []) {
         const maxRetries = 3;
-        
+
+        // 🧠 智能路由：分析收件人並決定最佳提供者順序
+        const routingResult = this.getOptimalProviderOrder(to);
+        console.log(`🎯 智能路由決策: 主要策略 ${routingResult.strategy}, 順序: [${routingResult.providerOrder.join(', ')}]`);
+
+        // 如果智能路由建議的主要提供者與當前不同，嘗試切換
+        if (this.currentProvider && routingResult.strategy !== this.currentProvider.type) {
+            console.log(`🔄 智能路由建議切換: ${this.currentProvider.type} → ${routingResult.strategy}`);
+            await this.selectOptimalProvider(routingResult.providerOrder);
+        }
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             // 檢查服務是否已初始化
             if (!this.initialized || (!this.transporter && !this.currentProvider?.isHttpApi)) {
@@ -855,9 +867,21 @@ class EmailService {
                 } catch (error) {
                     console.error(`❌ ${this.currentProvider.name} 發送失敗:`, error.message);
 
-                    // 如果不是最後一次嘗試，嘗試切換到下一個提供者
+                    // 🔥 立即故障轉移處理：403 權限錯誤不等待重試
+                    if (error.requiresImmediateFailover) {
+                        console.log(`🚨 偵測到需要立即故障轉移的錯誤，直接切換提供者...`);
+                        const switchSuccess = await this.switchToNextProvider();
+                        if (!switchSuccess) {
+                            throw new Error(`立即故障轉移失敗，所有郵件提供者都不可用。原始錯誤: ${error.message}`);
+                        }
+                        console.log(`✅ 已切換到 ${this.currentProvider.name}，重新嘗試發送...`);
+                        // 重新嘗試發送，但不計入重試次數
+                        continue;
+                    }
+
+                    // 一般錯誤處理：如果不是最後一次嘗試，嘗試切換到下一個提供者
                     if (attempt < maxRetries) {
-                        console.log(`🔄 嘗試切換到下一個郵件提供者...`);
+                        console.log(`🔄 嘗試切換到下一個郵件提供者... (第 ${attempt}/${maxRetries} 次嘗試)`);
                         const switchSuccess = await this.switchToNextProvider();
                         if (!switchSuccess) {
                             throw new Error(`所有郵件提供者都失敗。最後錯誤: ${error.message}`);
@@ -1723,6 +1747,13 @@ ${downloadResults.join('\n')}
             }
         } catch (error) {
             console.error(`❌ ${this.currentProvider.name} 發送失敗:`, error.message);
+
+            // 🔥 檢查是否為需要立即故障轉移的錯誤 (如 403 權限錯誤)
+            if (error.code === 'IMMEDIATE_FAILOVER') {
+                console.error(`🚨 檢測到立即故障轉移錯誤 - ${error.provider} 提供者`);
+                error.requiresImmediateFailover = true;
+            }
+
             throw error;
         }
     }
@@ -1761,7 +1792,33 @@ ${downloadResults.join('\n')}
 
             const data = await this.resendClient.emails.send(emailData);
 
-            // 詳細的成功日誌
+            // 🔥 檢查 Resend API 的錯誤回應格式（403 錯誤在 data.error 中）
+            if (data.error) {
+                console.error('❌ Resend API 回應中包含錯誤:');
+                console.error(`🔍 錯誤類型: ${data.error.statusCode || 'Unknown'}`);
+                console.error(`💬 錯誤訊息: ${data.error.error || data.error.message}`);
+                console.error(`📋 完整錯誤回應:`, data.error);
+
+                // 🔥 檢測 403 權限錯誤並觸發立即故障轉移
+                if (data.error.statusCode === 403) {
+                    console.error('🚨 403 權限錯誤 - 立即觸發故障轉移:');
+                    console.error('   - 偵測到權限限制（可能是未驗證收件人地址）');
+                    console.error('   - 將立即切換到下一個郵件提供者');
+                    console.error('   - 不進行重試，直接使用備援服務');
+
+                    // 建立特殊的 403 錯誤物件，標記需要立即故障轉移
+                    const failoverError = new Error(`Resend 403 權限錯誤 - 需要立即故障轉移: ${data.error.error || data.error.message}`);
+                    failoverError.code = 'IMMEDIATE_FAILOVER';
+                    failoverError.originalStatus = data.error.statusCode;
+                    failoverError.provider = 'resend';
+                    throw failoverError;
+                }
+
+                // 其他錯誤也應該拋出
+                throw new Error(`Resend API 錯誤 (${data.error.statusCode || 'Unknown'}): ${data.error.error || data.error.message}`);
+            }
+
+            // 正常成功的情況
             console.log(`✅ Resend 郵件發送成功!`);
             console.log(`📨 Message ID: ${data.id || 'N/A'}`);
             console.log(`🚀 使用提供者: Resend API`);
@@ -1782,16 +1839,177 @@ ${downloadResults.join('\n')}
             console.error(`💬 錯誤訊息: ${error.message}`);
             console.error(`📊 HTTP 狀態: ${error.status || error.statusCode || 'Unknown'}`);
 
+            // 🔥 增強的 403 錯誤處理：立即觸發故障轉移
             if (error.status === 403 || error.statusCode === 403) {
-                console.error('🚨 403 權限錯誤診斷:');
-                console.error('   - API 金鑰可能無效或權限不足');
-                console.error('   - 發件人地址可能未在 Resend 中驗證');
-                console.error('   - 請檢查 Resend Dashboard 的 Domains 設定');
+                console.error('🚨 403 權限錯誤 - 立即觸發故障轉移:');
+                console.error('   - 偵測到權限限制（可能是未驗證收件人地址）');
+                console.error('   - 將立即切換到下一個郵件提供者');
+                console.error('   - 不進行重試，直接使用備援服務');
+
+                // 建立特殊的 403 錯誤物件，標記需要立即故障轉移
+                const failoverError = new Error(`Resend 403 權限錯誤 - 需要立即故障轉移: ${error.message}`);
+                failoverError.code = 'IMMEDIATE_FAILOVER';
+                failoverError.originalStatus = error.status || error.statusCode;
+                failoverError.provider = 'resend';
+                throw failoverError;
             }
 
             console.error(`📋 完整錯誤物件:`, error);
 
             throw new Error(`Resend API 錯誤 (${error.status || error.statusCode || 'Unknown'}): ${error.message}`);
+        }
+    }
+
+    // 🧠 智能郵件路由：根據收件人特性決定最佳提供者順序
+    getOptimalProviderOrder(recipients) {
+        const recipientList = Array.isArray(recipients) ? recipients : [recipients];
+        console.log(`🧠 智能路由分析收件人:`, recipientList);
+
+        // 分析收件人特性
+        const analysis = {
+            hasVerifiedDomains: false,
+            hasGmailAddresses: false,
+            hasCustomDomains: false,
+            isInternalEmail: false,
+            totalRecipients: recipientList.length
+        };
+
+        recipientList.forEach(email => {
+            const domain = email.split('@')[1]?.toLowerCase();
+
+            // 檢查是否為已驗證的域名（Resend 友好）
+            if (['resend.dev', 'inftfinance.com.tw'].includes(domain)) {
+                analysis.hasVerifiedDomains = true;
+            }
+
+            // 檢查是否為 Gmail 地址
+            if (['gmail.com', 'googlemail.com'].includes(domain)) {
+                analysis.hasGmailAddresses = true;
+            }
+
+            // 檢查是否為內部郵件
+            if (domain === 'inftfinance.com.tw') {
+                analysis.isInternalEmail = true;
+            }
+
+            // 檢查是否為自訂域名
+            if (!['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'].includes(domain)) {
+                analysis.hasCustomDomains = true;
+            }
+        });
+
+        console.log(`📊 收件人分析結果:`, analysis);
+
+        // 🎯 根據分析結果決定提供者優先順序
+        let providerOrder = [];
+
+        if (this.isRender) {
+            // Render 環境的智能路由策略
+            if (analysis.hasVerifiedDomains && analysis.totalRecipients <= 1) {
+                // 單一已驗證域名收件人：優先使用 Resend
+                providerOrder = ['resend', 'brevo', 'postmark'];
+                console.log(`🎯 路由策略: 已驗證域名單收件人 → Resend 優先`);
+            } else if (analysis.isInternalEmail) {
+                // 內部郵件：平衡使用 Brevo 和 Resend
+                providerOrder = ['brevo', 'resend', 'postmark'];
+                console.log(`🎯 路由策略: 內部郵件 → Brevo 優先`);
+            } else {
+                // 外部或多收件人：主要使用 Brevo（避免 Resend 403 錯誤）
+                providerOrder = ['brevo', 'postmark', 'resend'];
+                console.log(`🎯 路由策略: 外部/多收件人 → Brevo 主力，Resend 降級`);
+            }
+        } else {
+            // 本地開發環境：優先使用 Gmail SMTP
+            if (analysis.hasGmailAddresses) {
+                providerOrder = ['gmail', 'resend', 'brevo'];
+                console.log(`🎯 路由策略: 本地Gmail收件人 → Gmail SMTP 優先`);
+            } else {
+                providerOrder = ['resend', 'brevo', 'gmail'];
+                console.log(`🎯 路由策略: 本地一般收件人 → Resend 優先`);
+            }
+        }
+
+        return {
+            analysis,
+            providerOrder,
+            strategy: providerOrder[0]
+        };
+    }
+
+    // 🎯 根據智能路由順序選擇最佳提供者
+    async selectOptimalProvider(preferredOrder) {
+        console.log(`🎯 智能提供者選擇: 嘗試順序 [${preferredOrder.join(', ')}]`);
+
+        // 獲取所有可用的提供者
+        const availableProviders = this.getAvailableProviders();
+
+        // 根據智能路由順序嘗試選擇提供者
+        for (const preferredType of preferredOrder) {
+            const provider = availableProviders.find(p => p.type === preferredType);
+
+            if (provider) {
+                console.log(`✅ 智能路由選中提供者: ${provider.name} (類型: ${preferredType})`);
+                this.currentProvider = provider;
+
+                // 初始化對應的客戶端
+                if (provider.isHttpApi) {
+                    await this.initializeHttpApiClient(provider);
+                } else {
+                    await this.initializeSMTPTransporter(provider);
+                }
+
+                return true;
+            } else {
+                console.log(`⚠️ 智能路由跳過不可用的提供者: ${preferredType}`);
+            }
+        }
+
+        console.error(`❌ 智能路由失敗: 所有建議的提供者都不可用`);
+        return false;
+    }
+
+    // 🔧 初始化 HTTP API 客戶端
+    async initializeHttpApiClient(provider) {
+        try {
+            if (provider.type === 'resend') {
+                const { Resend } = require('resend');
+                this.resendClient = new Resend(process.env.RESEND_API_KEY);
+                console.log(`✅ ${provider.name} 客戶端初始化成功`);
+            } else if (provider.type === 'brevo') {
+                const brevo = require('@getbrevo/brevo');
+                this.brevoClient = new brevo.TransactionalEmailsApi();
+                this.brevoClient.authentications['apiKey'].apiKey = process.env.BREVO_API_KEY;
+                console.log(`✅ ${provider.name} 客戶端初始化成功`);
+            } else if (provider.type === 'postmark') {
+                const postmark = require('postmark');
+                this.postmarkClient = new postmark.ServerClient(process.env.POSTMARK_API_KEY);
+                console.log(`✅ ${provider.name} 客戶端初始化成功`);
+            }
+            return true;
+        } catch (error) {
+            console.error(`❌ ${provider.name} 客戶端初始化失敗:`, error.message);
+            return false;
+        }
+    }
+
+    // 🔧 初始化 SMTP 傳送器
+    async initializeSMTPTransporter(provider) {
+        try {
+            const nodemailer = require('nodemailer');
+            this.transporter = nodemailer.createTransporter({
+                host: provider.host,
+                port: provider.port,
+                secure: provider.port === 465,
+                auth: {
+                    user: provider.user,
+                    pass: provider.pass
+                }
+            });
+            console.log(`✅ ${provider.name} SMTP 傳送器初始化成功`);
+            return true;
+        } catch (error) {
+            console.error(`❌ ${provider.name} SMTP 傳送器初始化失敗:`, error.message);
+            return false;
         }
     }
 
