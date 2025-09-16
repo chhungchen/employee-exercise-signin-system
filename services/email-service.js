@@ -1941,7 +1941,7 @@ ${downloadResults.join('\n')}
         console.log(`🎯 智能提供者選擇: 嘗試順序 [${preferredOrder.join(', ')}]`);
 
         // 獲取所有可用的提供者
-        const availableProviders = this.getAvailableProviders();
+        const availableProviders = this.availableProviders;
 
         // 根據智能路由順序嘗試選擇提供者
         for (const preferredType of preferredOrder) {
@@ -2011,6 +2011,26 @@ ${downloadResults.join('\n')}
             console.error(`❌ ${provider.name} SMTP 傳送器初始化失敗:`, error.message);
             return false;
         }
+    }
+
+    // 取得 Brevo 經過驗證的發件人地址
+    getBrevoVerifiedSender(originalFrom) {
+        // Brevo 通常使用在平台上驗證的發件人地址
+        // 如果環境變數中設定了 EMAIL_FROM，優先使用
+        if (process.env.EMAIL_FROM) {
+            console.log('🔧 Brevo 使用環境變數設定的發件人地址');
+            return process.env.EMAIL_FROM;
+        }
+
+        // 如果是已知的內部域名，可以直接使用
+        if (originalFrom && originalFrom.includes('@inftfinance.com.tw')) {
+            console.log('🏢 Brevo 使用內部域名地址');
+            return originalFrom;
+        }
+
+        // 默認使用安全的發件人地址
+        console.log('🌐 Brevo 使用默認發件人地址');
+        return 'noreply@inftfinance.com.tw';
     }
 
     // 取得經過驗證的發件人地址
@@ -2206,11 +2226,16 @@ ${downloadResults.join('\n')}
                 this.brevoClient.authentications['apiKey'].apiKey = process.env.BREVO_API_KEY;
             }
 
+            // 🔧 使用已驗證的發件人地址
+            const verifiedFromEmail = this.getBrevoVerifiedSender(from);
+            console.log(`📧 Brevo 原始發件人: ${from}`);
+            console.log(`✅ Brevo 驗證後發件人: ${verifiedFromEmail}`);
+
             const emailData = new brevo.SendSmtpEmail();
 
             // 設定基本郵件資訊
             emailData.sender = {
-                email: from,
+                email: verifiedFromEmail,
                 name: "員工運動系統"
             };
             emailData.to = Array.isArray(to) ?
