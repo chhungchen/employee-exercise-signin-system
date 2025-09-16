@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>企業SMTP診斷工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .diagnostic-step {
+            border-left: 4px solid #dee2e6;
+            padding-left: 1rem;
+            margin-bottom: 1rem;
+        }
+        .step-pending { border-left-color: #6c757d; }
+        .step-running { border-left-color: #0d6efd; }
+        .step-success { border-left-color: #198754; }
+        .step-error { border-left-color: #dc3545; }
+        .log-viewer {
+            background: #1a1a1a;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .config-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .status-badge {
+            font-size: 0.8em;
+            padding: 0.3em 0.6em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2><i class="fas fa-envelope-open-text text-primary"></i> 企業SMTP診斷工具</h2>
+                    <div>
+                        <button id="startDiagnostic" class="btn btn-primary me-2">
+                            <i class="fas fa-play"></i> 開始診斷
+                        </button>
+                        <button id="downloadReport" class="btn btn-outline-secondary" disabled>
+                            <i class="fas fa-download"></i> 下載報告
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- 診斷配置區 -->
+            <div class="col-md-4">
+                <div class="config-section">
+                    <h5><i class="fas fa-cog text-secondary"></i> 診斷配置</h5>
+                    <div class="mb-3">
+                        <label class="form-label">SMTP 主機</label>
+                        <input type="text" id="smtpHost" class="form-control"
+                               value="<%= process.env.INTERNAL_SMTP_HOST || 'internal.company.local' %>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">端口</label>
+                        <input type="number" id="smtpPort" class="form-control" value="25">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">測試超時 (毫秒)</label>
+                        <input type="number" id="timeout" class="form-control" value="5000">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">重試次數</label>
+                        <input type="number" id="retries" class="form-control" value="3">
+                    </div>
+                </div>
+
+                <div class="config-section">
+                    <h6><i class="fas fa-info-circle text-info"></i> 環境變數狀態</h6>
+                    <div class="small">
+                        <div class="d-flex justify-content-between">
+                            <span>INTERNAL_SMTP_HOST:</span>
+                            <span class="badge <%= process.env.INTERNAL_SMTP_HOST ? 'bg-success' : 'bg-warning' %> status-badge">
+                                <%= process.env.INTERNAL_SMTP_HOST ? '已設定' : '未設定' %>
+                            </span>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <span>INTERNAL_SMTP_FROM:</span>
+                            <span class="badge <%= process.env.INTERNAL_SMTP_FROM ? 'bg-success' : 'bg-warning' %> status-badge">
+                                <%= process.env.INTERNAL_SMTP_FROM ? '已設定' : '未設定' %>
+                            </span>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <span>NODE_ENV:</span>
+                            <span class="badge bg-info status-badge">
+                                <%= process.env.NODE_ENV || 'development' %>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 診斷進度區 -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h6><i class="fas fa-tasks"></i> 診斷進度
+                            <span id="overallStatus" class="badge bg-secondary ms-2">準備中</span>
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <!-- 診斷步驟 -->
+                        <div id="step1" class="diagnostic-step step-pending">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong><i class="fas fa-network-wired"></i> 步驟1: DNS解析測試</strong>
+                                <span class="badge bg-secondary">等待中</span>
+                            </div>
+                            <div class="text-muted small mt-1">檢查企業SMTP伺服器域名解析</div>
+                            <div id="step1-details" class="mt-2" style="display:none;"></div>
+                        </div>
+
+                        <div id="step2" class="diagnostic-step step-pending">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong><i class="fas fa-plug"></i> 步驟2: TCP連接測試</strong>
+                                <span class="badge bg-secondary">等待中</span>
+                            </div>
+                            <div class="text-muted small mt-1">檢查端口25的TCP連接可達性</div>
+                            <div id="step2-details" class="mt-2" style="display:none;"></div>
+                        </div>
+
+                        <div id="step3" class="diagnostic-step step-pending">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong><i class="fas fa-handshake"></i> 步驟3: SMTP握手測試</strong>
+                                <span class="badge bg-secondary">等待中</span>
+                            </div>
+                            <div class="text-muted small mt-1">執行SMTP協議握手和EHLO命令</div>
+                            <div id="step3-details" class="mt-2" style="display:none;"></div>
+                        </div>
+
+                        <div id="step4" class="diagnostic-step step-pending">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <strong><i class="fas fa-envelope"></i> 步驟4: 測試郵件發送</strong>
+                                <span class="badge bg-secondary">等待中</span>
+                            </div>
+                            <div class="text-muted small mt-1">嘗試發送測試郵件</div>
+                            <div id="step4-details" class="mt-2" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 實時日誌區 -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6><i class="fas fa-terminal"></i> 實時診斷日誌</h6>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="logViewer" class="log-viewer"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let diagnosticData = [];
+        let currentStep = 0;
+
+        document.getElementById('startDiagnostic').addEventListener('click', startDiagnostic);
+        document.getElementById('downloadReport').addEventListener('click', downloadReport);
+
+        function addLog(message, type = 'info') {
+            const logViewer = document.getElementById('logViewer');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = {
+                'info': '#00ff00',
+                'error': '#ff4444',
+                'warning': '#ffaa00',
+                'success': '#00ff88'
+            }[type];
+
+            logViewer.innerHTML += `<div style="color: ${colorClass};">[${timestamp}] ${message}</div>`;
+            logViewer.scrollTop = logViewer.scrollHeight;
+        }
+
+        function updateStepStatus(step, status, details = '') {
+            const stepElement = document.getElementById(`step${step}`);
+            const badge = stepElement.querySelector('.badge');
+            const detailsElement = document.getElementById(`step${step}-details`);
+
+            stepElement.className = `diagnostic-step step-${status}`;
+
+            const statusMap = {
+                'pending': { text: '等待中', class: 'bg-secondary' },
+                'running': { text: '執行中', class: 'bg-primary' },
+                'success': { text: '成功', class: 'bg-success' },
+                'error': { text: '失敗', class: 'bg-danger' }
+            };
+
+            badge.textContent = statusMap[status].text;
+            badge.className = `badge ${statusMap[status].class}`;
+
+            if (details) {
+                detailsElement.innerHTML = details;
+                detailsElement.style.display = 'block';
+            }
+        }
+
+        async function startDiagnostic() {
+            const startBtn = document.getElementById('startDiagnostic');
+            const downloadBtn = document.getElementById('downloadReport');
+
+            startBtn.disabled = true;
+            downloadBtn.disabled = true;
+
+            document.getElementById('overallStatus').textContent = '診斷中';
+            document.getElementById('overallStatus').className = 'badge bg-primary ms-2';
+
+            addLog('🔍 開始企業SMTP診斷流程...', 'info');
+
+            const config = {
+                host: document.getElementById('smtpHost').value,
+                port: parseInt(document.getElementById('smtpPort').value),
+                timeout: parseInt(document.getElementById('timeout').value),
+                retries: parseInt(document.getElementById('retries').value)
+            };
+
+            addLog(`📋 診斷配置: ${config.host}:${config.port}, 超時:${config.timeout}ms, 重試:${config.retries}次`, 'info');
+
+            try {
+                // 執行所有診斷步驟
+                await executeDiagnosticSteps(config);
+
+                document.getElementById('overallStatus').textContent = '診斷完成';
+                document.getElementById('overallStatus').className = 'badge bg-success ms-2';
+                addLog('✅ 診斷流程完成！', 'success');
+
+                downloadBtn.disabled = false;
+
+            } catch (error) {
+                document.getElementById('overallStatus').textContent = '診斷失敗';
+                document.getElementById('overallStatus').className = 'badge bg-danger ms-2';
+                addLog(`❌ 診斷過程發生錯誤: ${error.message}`, 'error');
+            }
+
+            startBtn.disabled = false;
+        }
+
+        async function executeDiagnosticSteps(config) {
+            const steps = [
+                { name: 'DNS解析測試', endpoint: '/admin/smtp-diagnostics/dns' },
+                { name: 'TCP連接測試', endpoint: '/admin/smtp-diagnostics/tcp' },
+                { name: 'SMTP握手測試', endpoint: '/admin/smtp-diagnostics/smtp' },
+                { name: '測試郵件發送', endpoint: '/admin/smtp-diagnostics/send' }
+            ];
+
+            for (let i = 0; i < steps.length; i++) {
+                const stepNum = i + 1;
+                const step = steps[i];
+
+                updateStepStatus(stepNum, 'running');
+                addLog(`🔄 執行 ${step.name}...`, 'info');
+
+                try {
+                    const response = await fetch(step.endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(config)
+                    });
+
+                    const result = await response.json();
+                    diagnosticData.push({ step: stepNum, name: step.name, ...result });
+
+                    if (result.success) {
+                        updateStepStatus(stepNum, 'success', `<div class="small text-success">${result.message}</div>`);
+                        addLog(`✅ ${step.name} 成功: ${result.message}`, 'success');
+                    } else {
+                        updateStepStatus(stepNum, 'error', `<div class="small text-danger">${result.error}</div>`);
+                        addLog(`❌ ${step.name} 失敗: ${result.error}`, 'error');
+                    }
+
+                    if (result.details) {
+                        addLog(`📊 詳細信息: ${JSON.stringify(result.details)}`, 'info');
+                    }
+
+                } catch (error) {
+                    updateStepStatus(stepNum, 'error', `<div class="small text-danger">網路請求失敗: ${error.message}</div>`);
+                    addLog(`❌ ${step.name} 執行失敗: ${error.message}`, 'error');
+                }
+
+                // 短暫延遲
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
+        function downloadReport() {
+            const report = {
+                timestamp: new Date().toISOString(),
+                environment: {
+                    nodeEnv: '<%= process.env.NODE_ENV || "development" %>',
+                    internalSmtpHost: '<%= process.env.INTERNAL_SMTP_HOST ? "已設定" : "未設定" %>',
+                    internalSmtpFrom: '<%= process.env.INTERNAL_SMTP_FROM ? "已設定" : "未設定" %>'
+                },
+                configuration: {
+                    host: document.getElementById('smtpHost').value,
+                    port: document.getElementById('smtpPort').value,
+                    timeout: document.getElementById('timeout').value,
+                    retries: document.getElementById('retries').value
+                },
+                results: diagnosticData,
+                logs: document.getElementById('logViewer').innerText
+            };
+
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `smtp-diagnostic-report-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // 頁面載入時添加初始日誌
+        window.addEventListener('load', () => {
+            addLog('🚀 企業SMTP診斷工具已就緒', 'info');
+            addLog('💡 請點擊"開始診斷"按鈕開始測試', 'info');
+        });
+    </script>
+</body>
+</html>

@@ -47,6 +47,10 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+// 設定視圖引擎
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
 // 解析JSON請求體
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -144,6 +148,9 @@ if (useGoogleServices && usePersonalGoogle) {
     app.use('/api', require('./routes/signin'));
     app.use('/api/admin', require('./routes/admin'));
 }
+
+// SMTP診斷工具路由 (在所有認證方式下都可使用)
+app.use('/admin/smtp-diagnostics', require('./routes/smtp-diagnostics'));
 
 // Email health check endpoint (available for all authentication types)
 app.get('/api/email/health-check', async (req, res) => {
