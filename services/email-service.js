@@ -2159,12 +2159,14 @@ ${downloadResults.join('\n')}
             return brevoVerifiedSender;
         }
 
-        // 2. 在 Render 環境使用 Brevo 官方推薦的免費發件人地址
+        // 2. 在 Render 環境使用已驗證的發件人地址
         if (this.isRender) {
-            // Brevo 為免費用戶提供的已驗證發件人地址
-            const brevoFreeSender = 'noreply@mail.brevo.com';
-            console.log('🌐 Render 環境：使用 Brevo 官方免費發件人地址:', brevoFreeSender);
-            return brevoFreeSender;
+            // 🔍 修正：根據 Brevo 診斷結果，使用帳戶中唯一已驗證的發件人
+            const verifiedSender = 'chhungchen@gmail.com';
+            console.log('🌐 Render 環境：使用已驗證的發件人地址:', verifiedSender);
+            console.log('✅ 此地址已在 Brevo 帳戶中驗證，符合 2024+ 郵件安全要求');
+            console.log('🚀 修正原因：noreply@mail.brevo.com 未通過域名驗證，導致投遞失敗');
+            return verifiedSender;
         }
 
         // 3. 本地開發環境，優先使用已驗證的發件人地址
