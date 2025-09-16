@@ -47,6 +47,8 @@ jspm_packages/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.internal
+.env.internal.example
 
 # IDE
 .vscode/
@@ -124,6 +126,7 @@ PRODUCTION-CREDENTIALS.txt
 *SECRET*
 .env.local
 google-token.json
+mail.env
 
 # 排除管理腳本
 !scripts/update-admin-password.js

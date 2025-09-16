@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
 const JSZip = require('jszip');
 const XLSX = require('xlsx');
-const { Resend } = require('resend');
+// Resend 已移除 - 重構為企業SMTP → Gmail → Brevo 三層架構
 const { Client } = require('postmark');
 const brevo = require('@getbrevo/brevo');
 const personalGoogleServices = require('./personal-google-services');
@@ -14,7 +14,7 @@ class EmailService {
         this.availableProviders = [];
         this.failedProviders = new Set();
         this.isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
-        this.resendClient = null;
+        // Resend 客戶端已移除 - 採用企業SMTP優先策略
         this.postmarkClient = null;
         this.brevoClient = null;
 
@@ -82,18 +82,23 @@ class EmailService {
         if (this.isRender) {
             console.log('🌐 Render 環境偵測：優先配置 HTTP API 郵件服務');
 
-            // 1. Resend HTTP API (雲端環境首選)
-            if (process.env.RESEND_API_KEY) {
-                this.resendClient = new Resend(process.env.RESEND_API_KEY);
+            // 1. 企業內部 SMTP (優先級 1 - 先嘗試，預期 3 秒後失敗)
+            console.log('📍 雲端環境嘗試企業 SMTP 配置...');
+            if (process.env.SMTP_SERVER || true) { // 總是嘗試企業 SMTP
                 providers.push({
-                    name: 'Resend API',
+                    name: '企業內部 SMTP',
                     priority: 1,
-                    type: 'resend',
-                    from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
-                    requiresAuth: false, // HTTP API 不需要 SMTP 認證
-                    isHttpApi: true
+                    type: 'internal',
+                    host: process.env.INTERNAL_SMTP_HOST || 'internal.company.local',
+                    port: 25,
+                    secure: false,
+                    auth: false, // 匿名認證
+                    from: process.env.INTERNAL_SMTP_FROM || 'system@company.local',
+                    requiresAuth: false,
+                    isHttpApi: false,
+                    timeout: 3000 // 3 秒快速失敗
                 });
-                console.log('✅ Resend HTTP API 已配置 (優先級 1)');
+                console.log('⚠️ 企業 SMTP 已配置 (雲端環境預期失敗，3秒超時)');
             }
 
             // 2. Postmark HTTP API (高可靠性備援)
@@ -127,15 +132,32 @@ class EmailService {
                 console.log('✅ Mailgun SMTP 已配置 (優先級 3)');
             }
         } else {
-            console.log('🏠 本地環境：保持 Gmail SMTP 優先順序');
+            console.log('🏠 本地環境：採用企業 SMTP → Gmail → Brevo 架構');
+
+            // 1. 企業內部 SMTP (優先級 1 - 本地環境主要選擇)
+            console.log('📍 本地環境配置企業 SMTP...');
+            providers.push({
+                name: '企業內部 SMTP',
+                priority: 1,
+                type: 'internal',
+                host: process.env.INTERNAL_SMTP_HOST || 'internal.company.local',
+                port: 25,
+                secure: false,
+                auth: false, // 匿名認證
+                from: process.env.INTERNAL_SMTP_FROM || 'system@company.local',
+                requiresAuth: false,
+                isHttpApi: false,
+                timeout: 5000 // 本地環境較寬鬆超時
+            });
+            console.log('✅ 企業 SMTP 已配置 (本地環境優先級 1)');
         }
 
-        // Gmail SMTP (本地環境優先，Render 環境降級)
-        if (process.env.SMTP_HOST === 'smtp.gmail.com' &&
-            process.env.SMTP_USER && process.env.SMTP_PASS) {
+        // Gmail SMTP (新架構第二順位，兩個環境都支持)
+        if (process.env.SMTP_USER && process.env.SMTP_PASS &&
+            (process.env.SMTP_HOST === 'smtp.gmail.com' || !process.env.SMTP_HOST)) {
             providers.push({
                 name: 'Gmail SMTP',
-                priority: this.isRender ? 10 : 1, // Render 環境降低優先級
+                priority: this.isRender ? 2 : 2, // 新架構中為第二順位
                 host: 'smtp.gmail.com',
                 port: process.env.SMTP_PORT || 587,
                 user: process.env.SMTP_USER,
@@ -144,34 +166,17 @@ class EmailService {
                 requiresAuth: true,
                 type: 'gmail',
                 isHttpApi: false,
-                renderCompatible: false // 標記為 Render 不相容
+                renderCompatible: true // 新架構中作為備援選項
             });
 
             if (this.isRender) {
-                console.log('⚠️ Gmail SMTP 在 Render 環境不可用，已降低優先級');
+                console.log('✅ Gmail SMTP 已配置 (雲端環境優先級 2)');
             } else {
-                console.log('✅ Gmail SMTP 已配置 (本地環境優先級 1)');
+                console.log('✅ Gmail SMTP 已配置 (本地環境優先級 2)');
             }
         }
 
-        // Resend HTTP API (適用於所有環境)
-        if (process.env.RESEND_API_KEY) {
-            if (!this.isRender) {
-                this.resendClient = new Resend(process.env.RESEND_API_KEY);
-            }
-            providers.push({
-                name: 'Resend API',
-                priority: this.isRender ? 2 : 3, // Render 環境優先級 2（備援），本地環境優先級 3（降級）
-                type: 'resend',
-                from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
-                requiresAuth: false,
-                isHttpApi: true
-            });
-            const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 2 : 3;
-            const note = this.isRender ? '(備援服務)' : '(403錯誤頻繁，已降級)';
-            console.log(`✅ Resend HTTP API 已配置 (${envType}優先級 ${priority} ${note})`);
-        }
+        // Resend 已移除 - 新架構：企業SMTP → Gmail → Brevo
 
         // Postmark HTTP API (適用於所有環境)
         if (process.env.POSTMARK_API_KEY) {
@@ -199,16 +204,16 @@ class EmailService {
             }
             providers.push({
                 name: 'Brevo API',
-                priority: this.isRender ? 1 : 1, // Render 環境優先級 1（主要），本地環境優先級 1（優化後優先）
+                priority: this.isRender ? 3 : 3, // 新架構中為第三順位
                 type: 'brevo',
                 from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                 requiresAuth: false,
                 isHttpApi: true
             });
             const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 1 : 1;
-            const note = this.isRender ? '(主要服務)' : '(本地環境優先，避免 Resend 403錯誤)';
-            console.log(`✅ Brevo HTTP API 已配置 (${envType}優先級 ${priority} ${note})`);
+            const priority = this.isRender ? 3 : 3;
+            const note = this.isRender ? '(第三順位)' : '(第三順位)';
+            console.log(`✅ Brevo HTTP API 已配置 (${envType}優先級 3 ${note})`);
         }
 
         // Mailgun SMTP (適用於所有環境)
@@ -247,7 +252,7 @@ class EmailService {
 
         // 4. 公司內部 SMTP（匿名認證）
         if (process.env.SMTP_HOST && 
-            process.env.SMTP_HOST.includes('jih-sun.com.tw')) {
+            process.env.SMTP_HOST === (process.env.INTERNAL_SMTP_HOST || 'internal.company.local')) {
             providers.push({
                 name: 'Company Internal SMTP',
                 priority: 4,
@@ -255,7 +260,7 @@ class EmailService {
                 port: process.env.SMTP_PORT || 25,
                 user: '',
                 pass: '',
-                from: process.env.EMAIL_FROM || 'system@inftfinance.com.tw',
+                from: process.env.EMAIL_FROM || (process.env.INTERNAL_SMTP_FROM || 'system@company.local'),
                 requiresAuth: false,
                 type: 'internal'
             });
@@ -299,8 +304,9 @@ class EmailService {
                 const transportConfig = this.createTransportConfig(provider);
                 this.transporter = nodemailer.createTransport(transportConfig);
 
-                // 驗證連線，使用動態超時（Gmail 需要更長時間）
-                const verifyTimeout = provider.type === 'gmail' ? 30000 : 20000;
+                // 驗證連線，使用動態超時（Gmail 需要更長時間，企業 SMTP 快速失敗）
+                const verifyTimeout = provider.type === 'gmail' ? 30000 :
+                                     provider.type === 'internal' ? (this.isRender ? 3000 : 5000) : 20000;
                 const verifyPromise = this.transporter.verify();
                 const timeoutPromise = new Promise((_, reject) => {
                     setTimeout(() => reject(new Error('SMTP 驗證超時')), verifyTimeout);
@@ -353,7 +359,27 @@ class EmailService {
         };
 
         // 根據提供者類型設定特定配置
-        if (provider.type === 'gmail') {
+        if (provider.type === 'internal') {
+            console.log('🔧 應用企業內部 SMTP 特定設定...');
+
+            // 企業內部 SMTP 專用設定（匿名認證）
+            transportConfig.secure = false; // 不使用 SSL
+            transportConfig.requireTLS = false; // 不強制 TLS
+            transportConfig.ignoreTLS = true; // 忽略 TLS
+
+            // 企業內網專用超時設定
+            if (provider.timeout) {
+                transportConfig.connectionTimeout = provider.timeout;
+                transportConfig.greetingTimeout = provider.timeout;
+                transportConfig.socketTimeout = provider.timeout;
+            }
+
+            // 企業內網不需要 TLS 設定
+            transportConfig.tls = {
+                rejectUnauthorized: false,
+                ignoreTLS: true
+            };
+        } else if (provider.type === 'gmail') {
             console.log('🔧 應用 Gmail SMTP 特定設定 (Render 平台優化)...');
 
             // Gmail 專用 TLS 設定（針對 Render 平台優化）
@@ -464,7 +490,7 @@ class EmailService {
 
         if (!smtpUser || !smtpPass) {
             // 檢查是否為匿名 SMTP（公司內部）
-            if (smtpHost.includes('jih-sun.com.tw') && smtpPort == 25) {
+            if (smtpHost === (process.env.INTERNAL_SMTP_HOST || 'internal.company.local') && smtpPort == 25) {
                 console.log('🏢 偵測到公司內部 SMTP，使用匿名認證模式');
                 return {
                     host: smtpHost,
@@ -527,7 +553,7 @@ class EmailService {
                 console.log('   🌐 Render 平台可能的問題:');
                 console.log('   - Render 封鎖了 Gmail SMTP 連接埠');
                 console.log('   - IP 被 Gmail 暫時封鎖');
-                console.log('   💊 建議使用 Resend、Mailgun 或 Postmark API');
+                console.log('   💊 建議使用企業 SMTP、Gmail 或 Brevo API');
             }
         } else if (errorCode === 'ETIMEDOUT' || errorMessage.includes('timeout')) {
             console.log('💡 連線超時 - 可能原因:');
@@ -535,7 +561,7 @@ class EmailService {
             console.log('   - SMTP 伺服器回應緩慢');
             console.log('   - 雲端環境網路限制');
             
-            if (config.host.includes('jih-sun.com.tw')) {
+            if (config.host === (process.env.INTERNAL_SMTP_HOST || 'internal.company.local')) {
                 console.log('   ⚠️ 公司內部 SMTP 無法從雲端環境存取');
                 console.log('   💡 建議: 在生產環境使用 Gmail SMTP');
             } else if (config.host === 'smtp.gmail.com') {
@@ -544,7 +570,7 @@ class EmailService {
                 console.log('   - Gmail 對特定 IP 範圍有限制');
                 console.log('   - TLS 握手失敗');
                 console.log('   💊 解決方案:');
-                console.log('     1. 切換到 Resend HTTP API（推薦）');
+                console.log('     1. 切換到企業 SMTP 或 Brevo API（推薦）');
                 console.log('     2. 使用 Mailgun 或 Postmark 服務');
                 console.log('     3. 檢查 Gmail 帳戶活動記錄');
             }
@@ -619,11 +645,7 @@ class EmailService {
                 from: provider.from
             })),
             configuration: {
-                resend: {
-                    configured: !!process.env.RESEND_API_KEY,
-                    keyPreview: process.env.RESEND_API_KEY ?
-                        `${process.env.RESEND_API_KEY.substring(0, 8)}...` : 'Not set'
-                },
+                // Resend 已移除 - 新架構採用企業 SMTP 優先
                 postmark: {
                     configured: !!process.env.POSTMARK_API_KEY,
                     keyPreview: process.env.POSTMARK_API_KEY ?
@@ -653,16 +675,13 @@ class EmailService {
         const recommendations = [];
 
         if (this.isRender) {
-            // Render 平台建議
-            if (!process.env.RESEND_API_KEY) {
-                recommendations.push({
-                    priority: 'high',
-                    category: 'primary_service',
-                    message: '建議配置 Resend API 作為主要郵件服務',
-                    action: '設定 RESEND_API_KEY 環境變數',
-                    url: 'https://resend.com/'
-                });
-            }
+            // 雲端環境建議 - 企業 SMTP 優先
+            recommendations.push({
+                priority: 'high',
+                category: 'primary_service',
+                message: '建議優先配置企業內部 SMTP 服務',
+                action: '確認 mail.env 中的企業 SMTP 設定'
+            });
 
             if (!process.env.POSTMARK_API_KEY) {
                 recommendations.push({
@@ -689,7 +708,7 @@ class EmailService {
                     priority: 'high',
                     category: 'no_service',
                     message: '沒有配置任何郵件服務',
-                    action: '建議先配置 Resend API 進行測試'
+                    action: '建議先配置企業 SMTP 或 Gmail 進行測試'
                 });
             } else if (this.availableProviders.length === 1) {
                 recommendations.push({
@@ -821,12 +840,11 @@ class EmailService {
         console.log('   SMTP_PASS=your-16-digit-app-password');
         console.log('   EMAIL_FROM=your-email@gmail.com');
         console.log('');
-        console.log('2️⃣ Resend HTTP API (雲端環境首選):');
-        console.log('   RESEND_API_KEY=re_xxxxxxxxxxxx');
-        console.log('   EMAIL_FROM=noreply@yourdomain.com');
-        console.log('   ✅ 現代化 API 設計');
-        console.log('   ✅ 免費 3000 封/月');
-        console.log('   ✅ 卓越的開發體驗');
+        console.log('2️⃣ 企業內部 SMTP (優先級 1):');
+        console.log('   配置於 mail.env 中');
+        console.log('   SMTP_SERVER=internal.company.local  # (配置在 .env.internal)');
+        console.log('   ✅ 內網高速連接');
+        console.log('   ✅ 無外部服務依賴');
         console.log('');
         console.log('3️⃣ Postmark HTTP API (高可靠性):');
         console.log('   POSTMARK_API_KEY=your-postmark-api-key');
@@ -850,14 +868,14 @@ class EmailService {
         console.log('   EMAIL_FROM=your-email@yourdomain.com');
         console.log('');
         console.log('🏢 公司內部 SMTP (僅限本地環境):');
-        console.log('   SMTP_HOST=ex2016.jih-sun.com.tw');
+        console.log('   SMTP_HOST=internal.company.local  # (配置在 .env.internal)');
         console.log('   SMTP_PORT=25');
         console.log('   ⚠️ 雲端環境無法使用內部 SMTP');
         console.log('');
         console.log('💡 故障切換機制:');
         console.log('   系統會自動嘗試所有可用的郵件服務');
         console.log('   如果主要服務失敗，會切換到備援服務');
-        console.log('   建議同時配置 Resend、Postmark 和 Mailgun 以確保可靠性');
+        console.log('   建議同時配置企業 SMTP、Gmail 和 Brevo 以確保可靠性');
     }
 
     // 📊 郵件投遞追蹤系統方法
@@ -1866,9 +1884,7 @@ ${downloadResults.join('\n')}
 
         try {
             let result;
-            if (this.currentProvider.type === 'resend') {
-                result = await this.sendEmailViaResend(to, subject, htmlContent, attachments, fromEmail);
-            } else if (this.currentProvider.type === 'postmark') {
+            if (this.currentProvider.type === 'postmark') {
                 result = await this.sendEmailViaPostmark(to, subject, htmlContent, attachments, fromEmail);
             } else if (this.currentProvider.type === 'brevo') {
                 result = await this.sendEmailViaBrevo(to, subject, htmlContent, attachments, fromEmail);
@@ -1893,107 +1909,7 @@ ${downloadResults.join('\n')}
         }
     }
 
-    // Resend HTTP API 發送
-    async sendEmailViaResend(to, subject, htmlContent, attachments, from) {
-        try {
-            // 🔧 解決 403 權限錯誤：使用經過驗證的發件人地址
-            const verifiedFromEmail = this.getVerifiedSenderEmail(from);
-
-            console.log(`📧 原始發件人: ${from}`);
-            console.log(`✅ 驗證後發件人: ${verifiedFromEmail}`);
-
-            const emailData = {
-                from: `"員工運動系統" <${verifiedFromEmail}>`,
-                to: Array.isArray(to) ? to : [to],
-                subject: subject,
-                html: htmlContent
-            };
-
-            // 處理附件
-            if (attachments && attachments.length > 0) {
-                emailData.attachments = attachments.map(attachment => ({
-                    filename: attachment.filename,
-                    content: attachment.content
-                }));
-            }
-
-            console.log(`🔍 API 調用數據:`, {
-                from: emailData.from,
-                to: emailData.to,
-                subject: emailData.subject,
-                hasHtml: !!emailData.html,
-                attachmentCount: emailData.attachments ? emailData.attachments.length : 0
-            });
-
-            const data = await this.resendClient.emails.send(emailData);
-
-            // 🔥 檢查 Resend API 的錯誤回應格式（403 錯誤在 data.error 中）
-            if (data.error) {
-                console.error('❌ Resend API 回應中包含錯誤:');
-                console.error(`🔍 錯誤類型: ${data.error.statusCode || 'Unknown'}`);
-                console.error(`💬 錯誤訊息: ${data.error.error || data.error.message}`);
-                console.error(`📋 完整錯誤回應:`, data.error);
-
-                // 🔥 檢測 403 權限錯誤並觸發立即故障轉移
-                if (data.error.statusCode === 403) {
-                    console.error('🚨 403 權限錯誤 - 立即觸發故障轉移:');
-                    console.error('   - 偵測到權限限制（可能是未驗證收件人地址）');
-                    console.error('   - 將立即切換到下一個郵件提供者');
-                    console.error('   - 不進行重試，直接使用備援服務');
-
-                    // 建立特殊的 403 錯誤物件，標記需要立即故障轉移
-                    const failoverError = new Error(`Resend 403 權限錯誤 - 需要立即故障轉移: ${data.error.error || data.error.message}`);
-                    failoverError.code = 'IMMEDIATE_FAILOVER';
-                    failoverError.originalStatus = data.error.statusCode;
-                    failoverError.provider = 'resend';
-                    throw failoverError;
-                }
-
-                // 其他錯誤也應該拋出
-                throw new Error(`Resend API 錯誤 (${data.error.statusCode || 'Unknown'}): ${data.error.error || data.error.message}`);
-            }
-
-            // 正常成功的情況
-            console.log(`✅ Resend 郵件發送成功!`);
-            console.log(`📨 Message ID: ${data.id || 'N/A'}`);
-            console.log(`🚀 使用提供者: Resend API`);
-            console.log(`📋 完整回應:`, data);
-
-            return {
-                success: true,
-                messageId: data.id || data.message_id || null,
-                response: 'Resend API 發送成功',
-                provider: 'Resend API',
-                rawResponse: data
-            };
-
-        } catch (error) {
-            // 詳細的錯誤診斷
-            console.error('❌ Resend 發送失敗 - 詳細診斷:');
-            console.error(`🔍 錯誤類型: ${error.name || 'Unknown'}`);
-            console.error(`💬 錯誤訊息: ${error.message}`);
-            console.error(`📊 HTTP 狀態: ${error.status || error.statusCode || 'Unknown'}`);
-
-            // 🔥 增強的 403 錯誤處理：立即觸發故障轉移
-            if (error.status === 403 || error.statusCode === 403) {
-                console.error('🚨 403 權限錯誤 - 立即觸發故障轉移:');
-                console.error('   - 偵測到權限限制（可能是未驗證收件人地址）');
-                console.error('   - 將立即切換到下一個郵件提供者');
-                console.error('   - 不進行重試，直接使用備援服務');
-
-                // 建立特殊的 403 錯誤物件，標記需要立即故障轉移
-                const failoverError = new Error(`Resend 403 權限錯誤 - 需要立即故障轉移: ${error.message}`);
-                failoverError.code = 'IMMEDIATE_FAILOVER';
-                failoverError.originalStatus = error.status || error.statusCode;
-                failoverError.provider = 'resend';
-                throw failoverError;
-            }
-
-            console.error(`📋 完整錯誤物件:`, error);
-
-            throw new Error(`Resend API 錯誤 (${error.status || error.statusCode || 'Unknown'}): ${error.message}`);
-        }
-    }
+    // sendEmailViaResend 方法已移除 - 重構為企業SMTP優先架構
 
     // 🧠 智能郵件路由：根據收件人特性決定最佳提供者順序
     getOptimalProviderOrder(recipients) {
@@ -2012,8 +1928,8 @@ ${downloadResults.join('\n')}
         recipientList.forEach(email => {
             const domain = email.split('@')[1]?.toLowerCase();
 
-            // 檢查是否為已驗證的域名（Resend 友好）
-            if (['resend.dev', 'inftfinance.com.tw'].includes(domain)) {
+            // 檢查是否為已驗證的域名（企業內部友好）
+            if (domain === (process.env.COMPANY_DOMAIN || 'company.local')) {
                 analysis.hasVerifiedDomains = true;
             }
 
@@ -2023,7 +1939,7 @@ ${downloadResults.join('\n')}
             }
 
             // 檢查是否為內部郵件
-            if (domain === 'inftfinance.com.tw') {
+            if (domain === (process.env.COMPANY_DOMAIN || 'company.local')) {
                 analysis.isInternalEmail = true;
             }
 
@@ -2040,27 +1956,23 @@ ${downloadResults.join('\n')}
 
         if (this.isRender) {
             // Render 環境的智能路由策略
-            if (analysis.hasVerifiedDomains && analysis.totalRecipients <= 1) {
-                // 單一已驗證域名收件人：優先使用 Resend
-                providerOrder = ['resend', 'brevo', 'postmark'];
-                console.log(`🎯 路由策略: 已驗證域名單收件人 → Resend 優先`);
-            } else if (analysis.isInternalEmail) {
-                // 內部郵件：平衡使用 Brevo 和 Resend
-                providerOrder = ['brevo', 'resend', 'postmark'];
-                console.log(`🎯 路由策略: 內部郵件 → Brevo 優先`);
+            if (analysis.isInternalEmail) {
+                // 內部郵件：優先使用企業 SMTP
+                providerOrder = ['internal', 'gmail', 'brevo'];
+                console.log(`🎯 路由策略: 內部郵件 → 企業 SMTP 優先`);
             } else {
-                // 外部或多收件人：主要使用 Brevo（避免 Resend 403 錯誤）
-                providerOrder = ['brevo', 'postmark', 'resend'];
-                console.log(`🎯 路由策略: 外部/多收件人 → Brevo 主力，Resend 降級`);
+                // 外部郵件：Gmail SMTP → Brevo API
+                providerOrder = ['gmail', 'brevo'];
+                console.log(`🎯 路由策略: 外部郵件 → Gmail SMTP 主力`);
             }
         } else {
-            // 本地開發環境：優先使用 Gmail SMTP
-            if (analysis.hasGmailAddresses) {
-                providerOrder = ['gmail', 'resend', 'brevo'];
-                console.log(`🎯 路由策略: 本地Gmail收件人 → Gmail SMTP 優先`);
+            // 本地開發環境：企業 SMTP → Gmail → Brevo
+            if (analysis.isInternalEmail) {
+                providerOrder = ['internal', 'gmail', 'brevo'];
+                console.log(`🎯 路由策略: 本地內部郵件 → 企業 SMTP 優先`);
             } else {
-                providerOrder = ['resend', 'brevo', 'gmail'];
-                console.log(`🎯 路由策略: 本地一般收件人 → Resend 優先`);
+                providerOrder = ['internal', 'gmail', 'brevo'];
+                console.log(`🎯 路由策略: 本地外部郵件 → 企業 SMTP 嘗試後轉 Gmail`);
             }
         }
 
@@ -2106,11 +2018,7 @@ ${downloadResults.join('\n')}
     // 🔧 初始化 HTTP API 客戶端
     async initializeHttpApiClient(provider) {
         try {
-            if (provider.type === 'resend') {
-                const { Resend } = require('resend');
-                this.resendClient = new Resend(process.env.RESEND_API_KEY);
-                console.log(`✅ ${provider.name} 客戶端初始化成功`);
-            } else if (provider.type === 'brevo') {
+            if (provider.type === 'brevo') {
                 const brevo = require('@getbrevo/brevo');
                 this.brevoClient = new brevo.TransactionalEmailsApi();
                 this.brevoClient.authentications['apiKey'].apiKey = process.env.BREVO_API_KEY;
@@ -2196,8 +2104,8 @@ ${downloadResults.join('\n')}
     getVerifiedSenderEmail(originalFrom) {
         // 1. 如果是 Render 環境，優先使用 Resend 官方測試地址
         if (this.isRender) {
-            console.log('🌐 Render 環境：使用 Resend 官方驗證地址');
-            return 'onboarding@resend.dev';
+            console.log('🌐 Render 環境：使用企業內部驗證地址');
+            return process.env.INTERNAL_SMTP_FROM || 'system@company.local';
         }
 
         // 2. 檢查是否配置了自定義的已驗證網域
@@ -2209,8 +2117,8 @@ ${downloadResults.join('\n')}
         }
 
         // 3. 本地開發環境的回退選項
-        console.log('⚠️ 本地環境：使用 Resend 測試地址作為備用');
-        return 'onboarding@resend.dev';
+        console.log('⚠️ 本地環境：使用企業內部測試地址');
+        return process.env.INTERNAL_SMTP_FROM || 'system@company.local';
     }
 
     // 驗證 Resend API 金鑰
@@ -2485,7 +2393,7 @@ ${downloadResults.join('\n')}
             if (recipientDomain === 'gmail.com' || recipientDomain === 'yahoo.com') {
                 console.log('⚠️ 收件人為 Gmail/Yahoo，需要域名驗證才能確保投遞');
                 console.log('📝 建議: 檢查垃圾郵件夾或促銷分類');
-            } else if (recipientDomain === 'inftfinance.com.tw') {
+            } else if (recipientDomain === (process.env.COMPANY_DOMAIN || 'company.local')) {
                 console.log('🏢 收件人為公司域名，檢查企業郵件過濾規則');
                 console.log('📝 建議: 檢查垃圾郵件夾和郵件伺服器設定');
             }
@@ -2501,7 +2409,7 @@ ${downloadResults.join('\n')}
                 deliveryAnalysis: {
                     senderVerified: senderDomain === 'mail.brevo.com' || senderDomain === 'gmail.com',
                     requiresDomainAuth: ['gmail.com', 'yahoo.com', 'outlook.com'].includes(recipientDomain),
-                    isInternalEmail: recipientDomain === 'inftfinance.com.tw'
+                    isInternalEmail: recipientDomain === (process.env.COMPANY_DOMAIN || 'company.local')
                 },
                 rawResponse: data
             };
