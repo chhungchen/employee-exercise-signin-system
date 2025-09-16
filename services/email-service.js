@@ -17,6 +17,16 @@ class EmailService {
         this.resendClient = null;
         this.postmarkClient = null;
         this.brevoClient = null;
+
+        // 📊 郵件投遞追蹤系統
+        this.deliveryTracking = {
+            totalAttempts: 0,
+            successfulDeliveries: 0,
+            failedDeliveries: 0,
+            providerStats: new Map(), // 提供者統計
+            recentAttempts: [], // 最近100次嘗試記錄
+            startTime: new Date()
+        };
     }
 
     // 初始化郵件服務
@@ -151,15 +161,15 @@ class EmailService {
             }
             providers.push({
                 name: 'Resend API',
-                priority: this.isRender ? 2 : 2, // Render 環境優先級 2（備援），本地環境優先級 2
+                priority: this.isRender ? 2 : 3, // Render 環境優先級 2（備援），本地環境優先級 3（降級）
                 type: 'resend',
                 from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                 requiresAuth: false,
                 isHttpApi: true
             });
             const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 2 : 2;
-            const note = this.isRender ? '(備援服務)' : '';
+            const priority = this.isRender ? 2 : 3;
+            const note = this.isRender ? '(備援服務)' : '(403錯誤頻繁，已降級)';
             console.log(`✅ Resend HTTP API 已配置 (${envType}優先級 ${priority} ${note})`);
         }
 
@@ -189,15 +199,15 @@ class EmailService {
             }
             providers.push({
                 name: 'Brevo API',
-                priority: this.isRender ? 1 : 4, // Render 環境優先級 1（主要），本地環境優先級 4
+                priority: this.isRender ? 1 : 1, // Render 環境優先級 1（主要），本地環境優先級 1（優化後優先）
                 type: 'brevo',
                 from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                 requiresAuth: false,
                 isHttpApi: true
             });
             const envType = this.isRender ? 'Render 環境' : '本地環境';
-            const priority = this.isRender ? 1 : 4;
-            const note = this.isRender ? '(主要服務)' : '';
+            const priority = this.isRender ? 1 : 1;
+            const note = this.isRender ? '(主要服務)' : '(本地環境優先，避免 Resend 403錯誤)';
             console.log(`✅ Brevo HTTP API 已配置 (${envType}優先級 ${priority} ${note})`);
         }
 
@@ -758,6 +768,24 @@ class EmailService {
             };
             healthReport.checks.push(configCheck);
 
+            // 5. 📊 郵件投遞統計檢查
+            const deliveryStats = this.getDeliveryStatistics();
+            const deliveryCheck = {
+                name: '郵件投遞統計',
+                status: deliveryStats.summary.totalAttempts > 0 ?
+                       (parseFloat(deliveryStats.summary.successRate) >= 80 ? 'pass' :
+                        parseFloat(deliveryStats.summary.successRate) >= 50 ? 'warning' : 'fail') : 'pass',
+                message: deliveryStats.summary.totalAttempts > 0 ?
+                        `成功率 ${deliveryStats.summary.successRate}，共 ${deliveryStats.summary.totalAttempts} 次嘗試` :
+                        '尚無郵件發送記錄',
+                details: {
+                    statistics: deliveryStats.summary,
+                    providerPerformance: deliveryStats.providers,
+                    recentFailures: deliveryStats.recentFailures.length
+                }
+            };
+            healthReport.checks.push(deliveryCheck);
+
             // 計算總體健康狀態
             const failedChecks = healthReport.checks.filter(c => c.status === 'fail').length;
             const warningChecks = healthReport.checks.filter(c => c.status === 'warning').length;
@@ -832,6 +860,98 @@ class EmailService {
         console.log('   建議同時配置 Resend、Postmark 和 Mailgun 以確保可靠性');
     }
 
+    // 📊 郵件投遞追蹤系統方法
+    trackEmailAttempt(provider, recipient, subject, success, error = null) {
+        const attempt = {
+            timestamp: new Date(),
+            provider: provider,
+            recipient: recipient,
+            subject: subject,
+            success: success,
+            error: error ? error.message : null
+        };
+
+        // 更新總計數器
+        this.deliveryTracking.totalAttempts++;
+        if (success) {
+            this.deliveryTracking.successfulDeliveries++;
+        } else {
+            this.deliveryTracking.failedDeliveries++;
+        }
+
+        // 更新提供者統計
+        if (!this.deliveryTracking.providerStats.has(provider)) {
+            this.deliveryTracking.providerStats.set(provider, {
+                attempts: 0,
+                successes: 0,
+                failures: 0,
+                lastUsed: null
+            });
+        }
+
+        const providerStat = this.deliveryTracking.providerStats.get(provider);
+        providerStat.attempts++;
+        providerStat.lastUsed = new Date();
+        if (success) {
+            providerStat.successes++;
+        } else {
+            providerStat.failures++;
+        }
+
+        // 記錄最近嘗試（限制100筆）
+        this.deliveryTracking.recentAttempts.push(attempt);
+        if (this.deliveryTracking.recentAttempts.length > 100) {
+            this.deliveryTracking.recentAttempts.shift();
+        }
+
+        // 輸出追蹤日誌
+        const status = success ? '✅ 成功' : '❌ 失敗';
+        console.log(`📊 [追蹤] ${status} - ${provider} → ${recipient} (總計: ${this.deliveryTracking.totalAttempts})`);
+    }
+
+    getDeliveryStatistics() {
+        const runtime = Math.floor((new Date() - this.deliveryTracking.startTime) / 1000);
+        const successRate = this.deliveryTracking.totalAttempts > 0
+            ? ((this.deliveryTracking.successfulDeliveries / this.deliveryTracking.totalAttempts) * 100).toFixed(2)
+            : 0;
+
+        const stats = {
+            summary: {
+                totalAttempts: this.deliveryTracking.totalAttempts,
+                successfulDeliveries: this.deliveryTracking.successfulDeliveries,
+                failedDeliveries: this.deliveryTracking.failedDeliveries,
+                successRate: `${successRate}%`,
+                runtimeSeconds: runtime
+            },
+            providers: {},
+            recentFailures: this.deliveryTracking.recentAttempts
+                .filter(a => !a.success)
+                .slice(-10)
+                .map(a => ({
+                    timestamp: a.timestamp,
+                    provider: a.provider,
+                    error: a.error
+                }))
+        };
+
+        // 提供者詳細統計
+        for (const [provider, stat] of this.deliveryTracking.providerStats) {
+            const providerSuccessRate = stat.attempts > 0
+                ? ((stat.successes / stat.attempts) * 100).toFixed(2)
+                : 0;
+
+            stats.providers[provider] = {
+                attempts: stat.attempts,
+                successes: stat.successes,
+                failures: stat.failures,
+                successRate: `${providerSuccessRate}%`,
+                lastUsed: stat.lastUsed
+            };
+        }
+
+        return stats;
+    }
+
     // 發送郵件（支援自動故障切換）
     async sendEmail(to, subject, htmlContent, attachments = []) {
         const maxRetries = 3;
@@ -866,6 +986,9 @@ class EmailService {
                     return await this.sendEmailViaHttpApi(to, subject, htmlContent, attachments);
                 } catch (error) {
                     console.error(`❌ ${this.currentProvider.name} 發送失敗:`, error.message);
+
+                    // 📊 追蹤 HTTP API 失敗發送
+                    this.trackEmailAttempt(this.currentProvider.name, to, subject, false, error);
 
                     // 🔥 立即故障轉移處理：403 權限錯誤不等待重試
                     if (error.requiresImmediateFailover) {
@@ -941,7 +1064,10 @@ class EmailService {
                 
                 console.log(`✅ 郵件發送成功: ${info.messageId}`);
                 console.log(`🚀 使用提供者: ${this.currentProvider?.name}`);
-                
+
+                // 📊 追蹤成功發送
+                this.trackEmailAttempt(this.currentProvider?.name || 'Unknown', to, subject, true);
+
                 return {
                     success: true,
                     messageId: info.messageId,
@@ -951,7 +1077,10 @@ class EmailService {
 
             } catch (error) {
                 console.error(`❌ 郵件發送失敗 (${this.currentProvider?.name}):`, error.message);
-                
+
+                // 📊 追蹤失敗發送
+                this.trackEmailAttempt(this.currentProvider?.name || 'Unknown', to, subject, false, error);
+
                 // 診斷錯誤
                 if (this.currentProvider) {
                     this.diagnoseError(error, this.currentProvider);
@@ -1736,15 +1865,21 @@ ${downloadResults.join('\n')}
         console.log(`📄 主旨: ${subject}`);
 
         try {
+            let result;
             if (this.currentProvider.type === 'resend') {
-                return await this.sendEmailViaResend(to, subject, htmlContent, attachments, fromEmail);
+                result = await this.sendEmailViaResend(to, subject, htmlContent, attachments, fromEmail);
             } else if (this.currentProvider.type === 'postmark') {
-                return await this.sendEmailViaPostmark(to, subject, htmlContent, attachments, fromEmail);
+                result = await this.sendEmailViaPostmark(to, subject, htmlContent, attachments, fromEmail);
             } else if (this.currentProvider.type === 'brevo') {
-                return await this.sendEmailViaBrevo(to, subject, htmlContent, attachments, fromEmail);
+                result = await this.sendEmailViaBrevo(to, subject, htmlContent, attachments, fromEmail);
             } else {
                 throw new Error(`不支援的 HTTP API 服務類型: ${this.currentProvider.type}`);
             }
+
+            // 📊 追蹤 HTTP API 成功發送
+            this.trackEmailAttempt(this.currentProvider.name, to, subject, true);
+
+            return result;
         } catch (error) {
             console.error(`❌ ${this.currentProvider.name} 發送失敗:`, error.message);
 
@@ -2015,22 +2150,44 @@ ${downloadResults.join('\n')}
 
     // 取得 Brevo 經過驗證的發件人地址
     getBrevoVerifiedSender(originalFrom) {
-        // Brevo 通常使用在平台上驗證的發件人地址
-        // 如果環境變數中設定了 EMAIL_FROM，優先使用
+        // 🔍 研究結果：Brevo 要求域名驗證，未驗證域名會導致投遞失敗
+
+        // 1. 檢查是否有 Brevo 驗證的自定義發件人
+        const brevoVerifiedSender = process.env.BREVO_VERIFIED_SENDER;
+        if (brevoVerifiedSender) {
+            console.log('✅ Brevo 使用自定義驗證發件人:', brevoVerifiedSender);
+            return brevoVerifiedSender;
+        }
+
+        // 2. 在 Render 環境使用 Brevo 官方推薦的免費發件人地址
+        if (this.isRender) {
+            // Brevo 為免費用戶提供的已驗證發件人地址
+            const brevoFreeSender = 'noreply@mail.brevo.com';
+            console.log('🌐 Render 環境：使用 Brevo 官方免費發件人地址:', brevoFreeSender);
+            return brevoFreeSender;
+        }
+
+        // 3. 本地開發環境，優先使用已驗證的發件人地址
+        if (!this.isRender) {
+            // 🔍 根據 Brevo 診斷結果，帳戶已驗證 chhungchen@gmail.com
+            const verifiedSender = 'chhungchen@gmail.com';
+            console.log('🏠 本地環境：使用已驗證的發件人地址:', verifiedSender);
+            console.log('✅ 此地址已在 Brevo 帳戶中驗證，投遞成功率更高');
+            console.log('💡 說明：根據帳戶診斷，此地址為唯一已驗證發件人');
+            return verifiedSender;
+        }
+
+        // 4. 最後的備用方案：使用 EMAIL_FROM（保留兼容性）
         if (process.env.EMAIL_FROM) {
-            console.log('🔧 Brevo 使用環境變數設定的發件人地址');
+            console.log('🔧 備用：使用 EMAIL_FROM 配置:', process.env.EMAIL_FROM);
+            console.log('⚠️ 注意：此地址可能需要在 Brevo 中進行域名驗證');
             return process.env.EMAIL_FROM;
         }
 
-        // 如果是已知的內部域名，可以直接使用
-        if (originalFrom && originalFrom.includes('@inftfinance.com.tw')) {
-            console.log('🏢 Brevo 使用內部域名地址');
-            return originalFrom;
-        }
-
-        // 默認使用安全的發件人地址
-        console.log('🌐 Brevo 使用默認發件人地址');
-        return 'noreply@inftfinance.com.tw';
+        // 5. 最終備用方案
+        const fallbackSender = 'noreply@mail.brevo.com';
+        console.log('🔄 最終備用：使用 Brevo 默認發件人地址:', fallbackSender);
+        return fallbackSender;
     }
 
     // 取得經過驗證的發件人地址
@@ -2252,21 +2409,146 @@ ${downloadResults.join('\n')}
                 }));
             }
 
+            // 🔍 記錄詳細的 API 調用信息
+            console.log(`🔍 Brevo API 調用數據:`, {
+                sender: emailData.sender,
+                to: emailData.to,
+                subject: emailData.subject,
+                hasHtml: !!emailData.htmlContent,
+                attachmentCount: emailData.attachment ? emailData.attachment.length : 0
+            });
+
+            // 發送郵件
             const data = await this.brevoClient.sendTransacEmail(emailData);
 
-            console.log(`✅ Brevo 郵件發送成功: ${data.messageId}`);
+            // 🔍 檢查 API 回應格式和內容
+            console.log(`📋 Brevo API 完整回應:`, data);
+
+            // 驗證回應有效性
+            if (!data || typeof data !== 'object') {
+                console.warn('⚠️ Brevo API 回應格式異常，但可能仍然成功');
+            }
+
+            // 🔧 正確解析 Brevo API MessageID
+            let messageId = 'unknown';
+
+            // 優先從 data.body.messageId 獲取（Brevo API 標準格式）
+            if (data && data.body && data.body.messageId) {
+                messageId = data.body.messageId;
+                console.log(`✅ 從 data.body.messageId 解析成功: ${messageId}`);
+            }
+            // 備用解析路徑
+            else if (data && data.messageId) {
+                messageId = data.messageId;
+                console.log(`✅ 從 data.messageId 解析成功: ${messageId}`);
+            }
+            else if (data && data.message_id) {
+                messageId = data.message_id;
+                console.log(`✅ 從 data.message_id 解析成功: ${messageId}`);
+            }
+            else if (data && data.id) {
+                messageId = data.id;
+                console.log(`✅ 從 data.id 解析成功: ${messageId}`);
+            }
+            else {
+                console.warn(`⚠️ 無法解析 MessageID，回應結構:`, data);
+            }
+
+            console.log(`✅ Brevo 郵件 API 調用成功!`);
+            console.log(`📨 Message ID: ${messageId}`);
             console.log(`🚀 使用提供者: Brevo API`);
+            console.log(`📧 實際發件人: ${verifiedFromEmail}`);
+            console.log(`📬 收件人: ${Array.isArray(to) ? to.join(', ') : to}`);
+
+            // 🔍 投遞狀況分析
+            console.log('\n🔍 投遞狀況分析:');
+            const recipientDomain = Array.isArray(to) ?
+                to[0].split('@')[1] : to.split('@')[1];
+            console.log(`📧 收件人域名: ${recipientDomain}`);
+
+            // 檢查發件人域名驗證狀況
+            const senderDomain = verifiedFromEmail.split('@')[1];
+            console.log(`📤 發件人域名: ${senderDomain}`);
+
+            if (senderDomain === 'mail.brevo.com') {
+                console.log('✅ 使用 Brevo 官方驗證域名，投遞率較高');
+            } else if (senderDomain === 'gmail.com') {
+                console.log('✅ 使用已驗證的 Gmail 地址');
+            } else {
+                console.log('⚠️ 使用自定義域名，需確認域名驗證狀態');
+                console.log('💡 建議: 檢查 Brevo 後台域名驗證設定');
+            }
+
+            // 根據收件人類型給出投遞建議
+            if (recipientDomain === 'gmail.com' || recipientDomain === 'yahoo.com') {
+                console.log('⚠️ 收件人為 Gmail/Yahoo，需要域名驗證才能確保投遞');
+                console.log('📝 建議: 檢查垃圾郵件夾或促銷分類');
+            } else if (recipientDomain === 'inftfinance.com.tw') {
+                console.log('🏢 收件人為公司域名，檢查企業郵件過濾規則');
+                console.log('📝 建議: 檢查垃圾郵件夾和郵件伺服器設定');
+            }
 
             return {
                 success: true,
-                messageId: data.messageId,
+                messageId: messageId,
                 response: 'Brevo API 發送成功',
-                provider: 'Brevo API'
+                provider: 'Brevo API',
+                sender: verifiedFromEmail,
+                recipientDomain: recipientDomain,
+                senderDomain: senderDomain,
+                deliveryAnalysis: {
+                    senderVerified: senderDomain === 'mail.brevo.com' || senderDomain === 'gmail.com',
+                    requiresDomainAuth: ['gmail.com', 'yahoo.com', 'outlook.com'].includes(recipientDomain),
+                    isInternalEmail: recipientDomain === 'inftfinance.com.tw'
+                },
+                rawResponse: data
             };
 
         } catch (error) {
-            console.error('❌ Brevo 發送失敗:', error);
-            throw new Error(`Brevo API 錯誤: ${error.message}`);
+            // 📊 詳細的 Brevo API 錯誤診斷
+            console.error('❌ Brevo 發送失敗 - 詳細診斷:');
+            console.error(`🔍 錯誤類型: ${error.name || 'Unknown'}`);
+            console.error(`💬 錯誤訊息: ${error.message}`);
+            console.error(`📊 HTTP 狀態: ${error.status || error.statusCode || error.response?.status || 'Unknown'}`);
+
+            // 檢查是否為 Brevo 特定錯誤
+            if (error.response) {
+                console.error(`🌐 Brevo API 回應狀態: ${error.response.status}`);
+                console.error(`📋 Brevo API 回應數據:`, error.response.data);
+
+                // 分析常見 Brevo 錯誤
+                if (error.response.status === 400) {
+                    console.error('🚨 400 錯誤：可能是請求格式錯誤或發件人地址問題');
+                } else if (error.response.status === 401) {
+                    console.error('🚨 401 錯誤：API 金鑰無效或權限不足');
+                } else if (error.response.status === 403) {
+                    console.error('🚨 403 錯誤：可能是發件人域名未驗證或權限限制');
+                } else if (error.response.status === 429) {
+                    console.error('🚨 429 錯誤：API 調用頻率限制');
+                }
+            }
+
+            // 檢查是否為網路或連接錯誤
+            if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+                console.error('🌐 網路連接錯誤，Brevo API 服務可能暫時不可用');
+            }
+
+            // 記錄發送嘗試的上下文信息
+            console.error(`📧 嘗試發送信息:`, {
+                to: Array.isArray(to) ? to : [to],
+                subject: subject,
+                sender: verifiedFromEmail,
+                timestamp: new Date().toISOString()
+            });
+
+            console.error(`📋 完整錯誤物件:`, error);
+
+            // 根據錯誤類型決定是否需要故障轉移
+            if (error.response?.status === 403) {
+                console.error('💡 建議：檢查 Brevo Dashboard 中的域名驗證狀態');
+            }
+
+            throw new Error(`Brevo API 錯誤 (${error.response?.status || error.status || 'Unknown'}): ${error.message}`);
         }
     }
 }
