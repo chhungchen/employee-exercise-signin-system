@@ -160,3 +160,13 @@ EMAIL_SERVICE_UPGRADE.md
 cookies.txt
 *.txt
 !README.txt
+
+# 內網輔助伺服器檔案（僅限本地）
+internal-email-server.js
+*internal*.bat
+ecosystem.config.js
+*內網*.md
+views/internal-email-admin.ejs
+monitor-internal.bat
+start-internal.bat
+stop-internal.bat
