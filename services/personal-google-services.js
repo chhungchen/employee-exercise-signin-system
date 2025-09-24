@@ -505,7 +505,7 @@ class PersonalGoogleServices {
             const { credentials } = await this.oauth2Client.refreshAccessToken();
             this.oauth2Client.setCredentials(credentials);
             this.saveToken(credentials);
-            
+
             if (process.env.NODE_ENV === 'production') {
                 this.saveTokenToEnv(credentials);
             }
@@ -515,6 +515,34 @@ class PersonalGoogleServices {
         } catch (error) {
             console.error('重新整理 token 失敗:', error);
             return false;
+        }
+    }
+
+    /**
+     * 取得當前 token 資訊
+     * @returns {Object|null} 返回 token 資訊或 null
+     */
+    getTokenInfo() {
+        try {
+            if (!this.oauth2Client) {
+                return null;
+            }
+
+            const credentials = this.oauth2Client.credentials;
+            if (!credentials) {
+                return null;
+            }
+
+            return {
+                access_token: credentials.access_token,
+                refresh_token: credentials.refresh_token,
+                scope: credentials.scope,
+                token_type: credentials.token_type,
+                expiry_date: credentials.expiry_date
+            };
+        } catch (error) {
+            console.error('取得 token 資訊失敗:', error);
+            return null;
         }
     }
 }
