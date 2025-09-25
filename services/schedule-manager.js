@@ -21,6 +21,13 @@ class ScheduleManager {
         this.personalGoogleServices = null;
         this.personalDatabase = null;
         this.emailService = null;
+        this.deliveryTracking = {
+            totalAttempts: 0,
+            successCount: 0,
+            failureCount: 0,
+            lastSuccess: null,
+            lastFailure: null
+        };
     }
 
     // 設定相依服務
@@ -113,7 +120,7 @@ class ScheduleManager {
     async executeDailyReport() {
         try {
             console.log('📊 開始執行定期報告寄送...');
-            
+
             if (!this.settings.enabled || !this.settings.email) {
                 console.log('⚠️ 定期寄送未啟用或缺少收件人');
                 return;
@@ -168,25 +175,52 @@ class ScheduleManager {
 
             // 發送報告給多個收件者
             const emailArray = this.settings.emails || parseEmailsFromText(this.settings.email);
-            
+
             let successCount = 0;
             let failedCount = 0;
-            
+            let lastError = null;
+
             for (const recipientEmail of emailArray) {
                 try {
+                    this.deliveryTracking.totalAttempts++;
                     await this.emailService.sendReport(recipientEmail, reportData, this.settings.format);
                     successCount++;
+                    this.deliveryTracking.successCount++;
+                    this.deliveryTracking.lastSuccess = new Date();
                     console.log(`✅ 定期報告已發送至 ${recipientEmail}`);
                 } catch (sendError) {
                     failedCount++;
+                    this.deliveryTracking.failureCount++;
+                    this.deliveryTracking.lastFailure = new Date();
+                    lastError = sendError;
                     console.error(`❌ 寄送失敗至 ${recipientEmail}:`, sendError.message);
                 }
             }
-            
+
+            // 如果有失敗，發送通知給 Jameschen@inftfinance.com.tw
+            if (failedCount > 0 && lastError) {
+                await this.sendFailureNotification(lastError, {
+                    scheduledTime: this.settings.time,
+                    recipient: emailArray.join(', '),
+                    timestamp: new Date(),
+                    successCount,
+                    failedCount,
+                    totalRecipients: emailArray.length
+                });
+            }
+
             console.log(`✅ 定期報告完成: ${signins.length} 筆記錄，成功寄送至 ${successCount}/${emailArray.length} 個收件者`);
 
         } catch (error) {
             console.error('❌ 執行定期報告失敗:', error);
+
+            // 發送系統性失敗通知
+            await this.sendFailureNotification(error, {
+                scheduledTime: this.settings.time,
+                recipient: this.settings.email || '未設定',
+                timestamp: new Date(),
+                isSystemFailure: true
+            });
         }
     }
 
@@ -464,6 +498,107 @@ class ScheduleManager {
             console.error('❌ 定期寄送管理器初始化失敗:', error);
         }
     }
+
+    // 發送失敗通知
+    async sendFailureNotification(error, context) {
+        try {
+            if (!this.emailService || !this.emailService.isConfigured()) {
+                console.error('❌ 無法發送失敗通知：郵件服務未配置');
+                return;
+            }
+
+            const notificationEmail = 'Jameschen@inftfinance.com.tw';
+            const { subject, html } = this.buildFailureNotificationContent(error, context);
+
+            await this.emailService.sendEmail(notificationEmail, subject, html, []);
+            console.log(`✅ 失敗通知已發送至 ${notificationEmail}`);
+        } catch (notificationError) {
+            console.error('❌ 發送失敗通知時發生錯誤:', notificationError);
+        }
+    }
+
+    // 建立失敗通知內容
+    buildFailureNotificationContent(error, context) {
+        const timestamp = moment(context.timestamp).utcOffset(8);
+        const formattedDate = timestamp.format('YYYY-MM-DD HH:mm (UTC+8)');
+        const dateOnly = timestamp.format('YYYY-MM-DD');
+        const timeOnly = timestamp.format('HH:mm');
+
+        const subject = `【警告】每日郵件報告寄送失敗 - ${dateOnly} ${context.scheduledTime} (UTC+8)`;
+
+        let errorDetails = '';
+        if (error.code) {
+            errorDetails += `錯誤代碼: ${error.code}\n`;
+        }
+        errorDetails += `錯誤訊息: ${error.message}\n`;
+        errorDetails += `發生時間: ${formattedDate}`;
+
+        let deliveryInfo = '';
+        if (context.isSystemFailure) {
+            deliveryInfo = '系統性錯誤，無法執行定期寄送任務';
+        } else {
+            deliveryInfo = `成功寄送: ${context.successCount}/${context.totalRecipients} 個收件者\n失敗寄送: ${context.failedCount}/${context.totalRecipients} 個收件者`;
+        }
+
+        const html = `
+        <div style="font-family: 'Microsoft JhengHei', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f9f9f9; padding: 20px;">
+            <div style="background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                <h2 style="color: #d32f2f; margin-top: 0;">🚨 每日郵件報告寄送失敗</h2>
+
+                <div style="background-color: #ffebee; padding: 15px; border-radius: 5px; border-left: 4px solid #d32f2f; margin: 20px 0;">
+                    <h3 style="color: #b71c1c; margin: 0 0 10px 0;">基本資訊</h3>
+                    <p style="margin: 5px 0;"><strong>排程時間:</strong> ${context.scheduledTime}</p>
+                    <p style="margin: 5px 0;"><strong>目標收件人:</strong> ${context.recipient}</p>
+                    <p style="margin: 5px 0;"><strong>發生時間:</strong> ${formattedDate}</p>
+                </div>
+
+                <div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; border-left: 4px solid #ff9800; margin: 20px 0;">
+                    <h3 style="color: #e65100; margin: 0 0 10px 0;">寄送狀態</h3>
+                    <p style="margin: 5px 0; white-space: pre-line;">${deliveryInfo}</p>
+                </div>
+
+                <div style="background-color: #fce4ec; padding: 15px; border-radius: 5px; border-left: 4px solid #e91e63; margin: 20px 0;">
+                    <h3 style="color: #ad1457; margin: 0 0 10px 0;">錯誤詳情</h3>
+                    <p style="margin: 5px 0; white-space: pre-line; font-family: monospace; background-color: #f5f5f5; padding: 10px; border-radius: 3px;">${errorDetails}</p>
+                </div>
+
+                <div style="background-color: #e3f2fd; padding: 15px; border-radius: 5px; border-left: 4px solid #2196f3; margin: 20px 0;">
+                    <h3 style="color: #0d47a1; margin: 0 0 10px 0;">建議處理步驟</h3>
+                    <ol style="margin: 0; padding-left: 20px;">
+                        <li>檢查郵件服務提供者狀態（Brevo API、Gmail SMTP）</li>
+                        <li>確認網路連線與防火牆設定</li>
+                        <li>檢查收件人信箱是否有效</li>
+                        <li>查看完整系統記錄檔</li>
+                        <li>必要時聯繫技術支援</li>
+                    </ol>
+                </div>
+
+                <p style="font-size: 12px; color: #666; text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
+                    此為系統自動發送的通知郵件 | 員工運動簽到系統 | ${formattedDate}
+                </p>
+            </div>
+        </div>`;
+
+        return { subject, html };
+    }
+
+    // 取得寄送統計
+    getDeliveryStats() {
+        const successRate = this.deliveryTracking.totalAttempts > 0
+            ? (this.deliveryTracking.successCount / this.deliveryTracking.totalAttempts * 100).toFixed(2)
+            : 0;
+
+        return {
+            totalAttempts: this.deliveryTracking.totalAttempts,
+            successCount: this.deliveryTracking.successCount,
+            failureCount: this.deliveryTracking.failureCount,
+            successRate: parseFloat(successRate),
+            lastSuccess: this.deliveryTracking.lastSuccess,
+            lastFailure: this.deliveryTracking.lastFailure
+        };
+    }
 }
 
-module.exports = new ScheduleManager();
+const scheduleManagerInstance = new ScheduleManager();
+module.exports = scheduleManagerInstance;
+module.exports.constructor = ScheduleManager;

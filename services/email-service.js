@@ -82,37 +82,51 @@ class EmailService {
         if (this.isRender) {
             console.log('🌐 Render 環境偵測：優先配置 HTTP API 郵件服務');
 
-            // 1. 企業內部 SMTP (優先級 1 - 先嘗試，預期 3 秒後失敗)
-            console.log('📍 雲端環境嘗試企業 SMTP 配置...');
-            if (process.env.SMTP_SERVER || true) { // 總是嘗試企業 SMTP
+            // 1. Brevo HTTP API (優先級 1 - 外部郵件首選)
+            if (process.env.BREVO_API_KEY) {
+                this.brevoClient = new brevo.TransactionalEmailsApi();
+                this.brevoClient.authentications['apiKey'].apiKey = process.env.BREVO_API_KEY;
                 providers.push({
-                    name: '企業內部 SMTP',
+                    name: 'Brevo API',
                     priority: 1,
-                    type: 'internal',
-                    host: process.env.INTERNAL_SMTP_HOST || 'internal.company.local',
-                    port: 25,
-                    secure: false,
-                    auth: false, // 匿名認證
-                    from: process.env.INTERNAL_SMTP_FROM || 'system@company.local',
+                    type: 'brevo',
+                    from: process.env.EMAIL_FROM || 'chhungchen@gmail.com',
                     requiresAuth: false,
-                    isHttpApi: false,
-                    timeout: 3000 // 3 秒快速失敗
+                    isHttpApi: true
                 });
-                console.log('⚠️ 企業 SMTP 已配置 (雲端環境預期失敗，3秒超時)');
+                console.log('✅ Brevo HTTP API 已配置 (優先級 1 - 外部郵件首選)');
             }
 
-            // 2. Postmark HTTP API (高可靠性備援)
+            // 2. Gmail SMTP (優先級 2 - 備援服務)
+            if (process.env.SMTP_USER && process.env.SMTP_PASS &&
+                (process.env.SMTP_HOST === 'smtp.gmail.com' || !process.env.SMTP_HOST)) {
+                providers.push({
+                    name: 'Gmail SMTP',
+                    priority: 2,
+                    host: 'smtp.gmail.com',
+                    port: process.env.SMTP_PORT || 587,
+                    user: process.env.SMTP_USER,
+                    pass: process.env.SMTP_PASS,
+                    from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+                    requiresAuth: true,
+                    type: 'gmail',
+                    isHttpApi: false
+                });
+                console.log('✅ Gmail SMTP 已配置 (優先級 2 - 備援服務)');
+            }
+
+            // 3. Postmark HTTP API (優先級 3 - 額外備援)
             if (process.env.POSTMARK_API_KEY) {
                 this.postmarkClient = new Client(process.env.POSTMARK_API_KEY);
                 providers.push({
                     name: 'Postmark API',
-                    priority: 2,
+                    priority: 3,
                     type: 'postmark',
                     from: process.env.EMAIL_FROM || 'noreply@yourdomain.com',
                     requiresAuth: false,
                     isHttpApi: true
                 });
-                console.log('✅ Postmark HTTP API 已配置 (優先級 2)');
+                console.log('✅ Postmark HTTP API 已配置 (優先級 3)');
             }
 
             // 3. Mailgun SMTP (SMTP 備援，雲端友善)
@@ -1961,9 +1975,9 @@ ${downloadResults.join('\n')}
                 providerOrder = ['internal', 'gmail', 'brevo'];
                 console.log(`🎯 路由策略: 內部郵件 → 企業 SMTP 優先`);
             } else {
-                // 外部郵件：Gmail SMTP → Brevo API
-                providerOrder = ['gmail', 'brevo'];
-                console.log(`🎯 路由策略: 外部郵件 → Gmail SMTP 主力`);
+                // 外部郵件：Brevo API → Gmail SMTP
+                providerOrder = ['brevo', 'gmail'];
+                console.log(`🎯 路由策略: 外部郵件 → Brevo API 主力`);
             }
         } else {
             // 本地開發環境：企業 SMTP → Gmail → Brevo
