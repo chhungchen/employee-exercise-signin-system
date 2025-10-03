@@ -151,6 +151,11 @@ PROJECT_*.md
 DEVELOPMENT_*.md
 ARCHITECTURE_*.md
 
+# OAuth 設定記錄（包含敏感資訊）
+OAUTH_SETUP_RECORD.md
+*OAUTH*.md
+*TOKEN*.md
+
 # 郵件服務升級文件（包含敏感資訊）
 EMAIL_SERVICE_UPGRADE.md
 *UPGRADE*.md

@@ -70,11 +70,37 @@
 ## 🛠️ 技術架構
 
 - **後端**：Node.js + Express.js
-- **資料庫**：SQLite3
-- **身份驗證**：JWT + bcryptjs
+- **資料庫**：SQLite3 / Google Sheets
+- **雲端儲存**：Google Drive
+- **身份驗證**：JWT + bcryptjs + Google OAuth 2.0
 - **檔案上傳**：Multer
 - **前端**：HTML5 + CSS3 + Vanilla JavaScript
 - **安全**：Helmet + CORS + Rate Limiting
+
+## 🔐 Google OAuth 整合
+
+本系統整合 Google Sheets 與 Google Drive 作為資料儲存方案，使用 OAuth 2.0 進行安全授權。
+
+### OAuth 設定狀態
+
+- **授權模式**：正式版 (In Production)
+- **Token 有效期**：長期有效（除非手動撤銷或 180 天未使用）
+- **監控機制**：每小時自動健康檢查，異常時郵件通知
+
+### 使用的 Google API
+
+- **Google Sheets API**：儲存員工資料、活動記錄、簽到資料
+- **Google Drive API**：儲存簽到照片與電子簽名檔案
+
+### Token 監控
+
+系統內建 Token 健康監控機制：
+- 每小時自動檢查 Token 狀態
+- 每日 08:00 執行深度健康檢查
+- 每週一 09:00 發送健康報告
+- Token 異常時自動發送警報郵件
+
+詳細設定請參考本地文件（不包含於 Git 版本控制）
 
 ## 📋 API 端點
 
